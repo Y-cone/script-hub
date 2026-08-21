@@ -114,7 +114,7 @@ export default function RunHistory() {
     {
       title: '操作',
       key: 'actions',
-      width: 120,
+      width: 150,
       render: (_: unknown, record: RunHistoryItem) => (
         <Space>
           <Tooltip title="查看输出">
@@ -122,16 +122,20 @@ export default function RunHistory() {
               size="small"
               icon={<EyeOutlined />}
               onClick={() => showOutput(record.output)}
-            />
+            >
+              查看
+            </Button>
           </Tooltip>
           {record.output_file && (
-            <Tooltip title="下载日志">
+            <Tooltip title="下载完整日志">
               <Button
                 size="small"
                 icon={<DownloadOutlined />}
                 href={`/api/run/${record.id}/download`}
                 target="_blank"
-              />
+              >
+                日志
+              </Button>
             </Tooltip>
           )}
         </Space>

@@ -340,7 +340,24 @@ export default function ScriptDetail() {
             <Tag color={CATEGORY_COLORS[currentScript.category]}>{currentScript.category}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="相对路径">{currentScript.relative_path}</Descriptions.Item>
-          <Descriptions.Item label="危险脚本">{currentScript.dangerous ? '是' : '否'}</Descriptions.Item>
+          <Descriptions.Item label="危险脚本">
+            <Switch
+              checked={currentScript.dangerous}
+              onChange={async (checked) => {
+                try {
+                  await updateScript(currentScript.id, { dangerous: checked })
+                  useScriptStore.setState({
+                    currentScript: { ...currentScript, dangerous: checked }
+                  })
+                  message.success(checked ? '已标记为高危脚本' : '已取消高危标记')
+                } catch {
+                  message.error('修改失败')
+                }
+              }}
+              checkedChildren="是"
+              unCheckedChildren="否"
+            />
+          </Descriptions.Item>
         </Descriptions>
       </Card>
 

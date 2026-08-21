@@ -38,6 +38,7 @@ export const getScripts = (params?: {
   page_size?: number
   search?: string
   directory?: string
+  category?: string
 }) => api.get<ScriptListResponse>('/api/scripts', { params })
 
 export const getScript = (id: number) => api.get<ScriptItem>(`/api/scripts/${id}`)

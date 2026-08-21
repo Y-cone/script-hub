@@ -17,6 +17,7 @@ async def list_scripts(
     page_size: int = Query(20, ge=1, le=100),
     search: str = Query("", description="按文件名搜索"),
     directory: str = Query("", description="按目录筛选"),
+    category: str = Query("", description="按类型筛选"),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Script)
@@ -31,6 +32,10 @@ async def list_scripts(
     if directory:
         query = query.where(Script.relative_path.like(f"{directory}%"))
         count_query = count_query.where(Script.relative_path.like(f"{directory}%"))
+
+    if category:
+        query = query.where(Script.category == category)
+        count_query = count_query.where(Script.category == category)
 
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0

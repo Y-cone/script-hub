@@ -20,8 +20,10 @@ interface ScriptState {
   loading: boolean
   search: string
   directory: string
+  category: string
   setSearch: (s: string) => void
   setDirectory: (d: string) => void
+  setCategory: (c: string) => void
   fetchScripts: () => Promise<void>
   fetchScript: (id: number) => Promise<void>
   fetchContent: (id: number) => Promise<void>
@@ -41,15 +43,17 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   loading: false,
   search: '',
   directory: '',
+  category: '',
 
   setSearch: (s) => set({ search: s }),
   setDirectory: (d) => set({ directory: d }),
+  setCategory: (c) => set({ category: c }),
 
   fetchScripts: async () => {
-    const { page, pageSize, search, directory } = get()
+    const { page, pageSize, search, directory, category } = get()
     set({ loading: true })
     try {
-      const { data } = await getScripts({ page, page_size: pageSize, search, directory })
+      const { data } = await getScripts({ page, page_size: pageSize, search, directory, category })
       set({ scripts: data.items, total: data.total })
     } finally {
       set({ loading: false })

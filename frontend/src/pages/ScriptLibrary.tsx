@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { Table, Input, Button, Space, Tree, message, Tag } from 'antd'
+import { Table, Input, Button, Space, Tree, message, Tag, Select } from 'antd'
 import { ScanOutlined, SearchOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
@@ -12,6 +12,14 @@ const CATEGORY_COLORS: Record<string, string> = {
   bat: 'orange',
   powershell: 'purple',
 }
+
+const CATEGORY_OPTIONS = [
+  { label: '全部类型', value: '' },
+  { label: 'Python', value: 'python' },
+  { label: 'Shell', value: 'shell' },
+  { label: 'Batch', value: 'bat' },
+  { label: 'PowerShell', value: 'powershell' },
+]
 
 function buildTree(scripts: ScriptItem[]): DataNode[] {
   const root: Record<string, any> = {}
@@ -42,11 +50,11 @@ function buildTree(scripts: ScriptItem[]): DataNode[] {
 export default function ScriptLibrary() {
   const navigate = useNavigate()
   const {
-    scripts, total, page, pageSize, loading, search,
-    setSearch, fetchScripts, doScan, setDirectory,
+    scripts, total, page, pageSize, loading, search, category,
+    setSearch, setCategory, fetchScripts, doScan, setDirectory,
   } = useScriptStore()
 
-  useEffect(() => { fetchScripts() }, [page, search])
+  useEffect(() => { fetchScripts() }, [page, search, category])
 
   const treeData = useMemo(() => buildTree(scripts), [scripts])
 
@@ -107,6 +115,15 @@ export default function ScriptLibrary() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ width: 250 }}
             allowClear
+          />
+          <Select
+            value={category}
+            onChange={(val) => {
+              setCategory(val)
+              useScriptStore.setState({ page: 1 })
+            }}
+            options={CATEGORY_OPTIONS}
+            style={{ width: 130 }}
           />
           <Button icon={<ScanOutlined />} onClick={handleScan} type="primary">
             扫描目录
