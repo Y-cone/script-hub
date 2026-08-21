@@ -61,3 +61,55 @@ export interface ParamDef {
 
 export const parseScriptParams = (id: number) =>
   api.post<{ id: number; parameters: ParamDef[] }>(`/api/scripts/${id}/parse`)
+
+// 运行相关API
+export interface RunRequest {
+  script_id: number
+  parameters?: Record<string, any>
+  working_dir?: string
+  env_vars?: Record<string, string>
+  timeout?: number
+  confirm_dangerous?: boolean
+}
+
+export interface RunResponse {
+  id: number
+  status: string
+  command: string
+  message: string
+}
+
+export interface RunHistoryItem {
+  id: number
+  script_id: number
+  parameters: string
+  command: string
+  output: string
+  exit_code: number | null
+  status: string
+  duration: number | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface RunHistoryListResponse {
+  items: RunHistoryItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export const runScript = (data: RunRequest) =>
+  api.post<RunResponse>('/api/run', data)
+
+export const getRunHistory = (params?: {
+  page?: number
+  page_size?: number
+  script_id?: number
+}) => api.get<RunHistoryListResponse>('/api/run/history', { params })
+
+export const getRunDetail = (id: number) =>
+  api.get<RunHistoryItem>(`/api/run/${id}`)
+
+export const killRun = (id: number) =>
+  api.post(`/api/run/${id}/kill`)

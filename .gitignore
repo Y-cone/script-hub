@@ -1,3 +1,7 @@
+# Docs (local only)
+IDEA.md
+PRD.md
+
 # Python
 __pycache__/
 *.pyc
