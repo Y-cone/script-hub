@@ -97,6 +97,29 @@ async def get_run_detail(run_id: int, db: AsyncSession = Depends(get_db)):
     return run_history
 
 
+@router.get("/{run_id}/download")
+async def download_run_log(run_id: int, db: AsyncSession = Depends(get_db)):
+    """下载运行日志文件"""
+    result = await db.execute(select(RunHistory).where(RunHistory.id == run_id))
+    run_history = result.scalar_one_or_none()
+    if not run_history:
+        raise HTTPException(404, "Run history not found")
+    if not run_history.output_file:
+        raise HTTPException(404, "日志文件不存在")
+    
+    from fastapi.responses import FileResponse
+    import os
+    
+    if not os.path.exists(run_history.output_file):
+        raise HTTPException(404, "日志文件已被删除")
+    
+    return FileResponse(
+        run_history.output_file,
+        filename=f"run_{run_id}.log",
+        media_type="text/plain"
+    )
+
+
 @router.post("/{run_id}/kill")
 async def kill_run(run_id: int):
     """终止运行中的脚本 — 不查DB，直接杀进程"""

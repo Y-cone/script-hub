@@ -161,6 +161,34 @@ export default function ScriptDetail() {
   const handleRun = async () => {
     if (!id || !currentScript) return
     
+    // 高危脚本二次确认
+    if (currentScript.dangerous) {
+      Modal.confirm({
+        title: '⚠️ 高危脚本确认',
+        content: (
+          <div>
+            <p>您即将执行一个<strong>高危脚本</strong>：</p>
+            <p style={{ fontFamily: 'monospace', background: '#f5f5f5', padding: 8, borderRadius: 4 }}>
+              {currentScript.name}
+            </p>
+            <p>此脚本可能对系统造成不可逆的影响，请确认您了解脚本的功能。</p>
+          </div>
+        ),
+        okText: '确认执行',
+        cancelText: '取消',
+        okButtonProps: { danger: true },
+        onOk: () => executeScript(),
+      })
+      return
+    }
+    
+    await executeScript()
+  }
+
+  // 实际执行脚本的函数
+  const executeScript = async () => {
+    if (!id || !currentScript) return
+    
     try {
       setIsRunning(true)
       setRunOutput('')

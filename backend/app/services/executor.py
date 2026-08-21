@@ -15,12 +15,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# 输出日志目录
+RUNS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "runs"
+
 
 class ScriptExecutor:
     """脚本执行引擎"""
     
     def __init__(self):
         self.running_processes: Dict[int, asyncio.subprocess.Process] = {}
+        # 确保日志目录存在
+        RUNS_DIR.mkdir(parents=True, exist_ok=True)
     
     async def _update_db(self, run_history_id: int, **kwargs):
         """更新运行记录的指定字段"""
@@ -48,6 +53,7 @@ class ScriptExecutor:
         collected_output = ""
         exit_code = -1
         status = "failed"
+        output_file = None
         
         # 构建命令
         command = self._build_command(script, parameters)
@@ -60,8 +66,12 @@ class ScriptExecutor:
         # 确定工作目录
         cwd = working_dir or script.working_dir or str(Path(script.path).parent)
         
-        # 更新命令到数据库（立即）
-        await self._update_db(run_history_id, command=command)
+        # 创建输出日志文件
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_file = RUNS_DIR / f"run_{run_history_id}_{timestamp}.log"
+        
+        # 更新命令和输出文件路径到数据库
+        await self._update_db(run_history_id, command=command, output_file=str(output_file))
         
         try:
             # 启动进程
@@ -77,9 +87,13 @@ class ScriptExecutor:
             # 保存进程引用
             self.running_processes[run_history_id] = process
             
-            # 实时读取输出并写入DB
-            collected_output = f"\n$ {command}\n\n"
+            # 实时读取输出并写入DB和文件
+            collected_output = f"$ {command}\n\n"
             await self._update_db(run_history_id, output=collected_output)
+            
+            # 写入文件
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(collected_output)
             
             # 并行读取 stdout 和 stderr
             async def read_stream(stream, is_stderr=False):
@@ -90,8 +104,18 @@ class ScriptExecutor:
                         break
                     text = line.decode('utf-8', errors='replace')
                     collected_output += text
-                    # 每行写一次DB（ponytail: 高频写，后续可改为批量/节流写）
-                    await self._update_db(run_history_id, output=collected_output)
+                    
+                    # 写入文件（完整输出）
+                    with open(output_file, 'a', encoding='utf-8') as f:
+                        f.write(text)
+                    
+                    # DB只存储尾部1000行（ponytail: 高频写，后续可改为批量/节流写）
+                    lines = collected_output.split('\n')
+                    if len(lines) > 1000:
+                        db_output = '\n'.join(lines[-1000:])
+                    else:
+                        db_output = collected_output
+                    await self._update_db(run_history_id, output=db_output)
             
             try:
                 await asyncio.wait_for(
@@ -108,27 +132,39 @@ class ScriptExecutor:
                 
             except asyncio.TimeoutError:
                 await self._kill_process_tree(process)
-                collected_output += f"\n[超时] 脚本执行超过 {timeout} 秒"
+                timeout_msg = f"\n[超时] 脚本执行超过 {timeout} 秒"
+                collected_output += timeout_msg
+                with open(output_file, 'a', encoding='utf-8') as f:
+                    f.write(timeout_msg)
                 exit_code = -1
                 status = "timeout"
             except asyncio.CancelledError:
-                collected_output += "\n[取消] 脚本被取消"
+                cancel_msg = "\n[取消] 脚本被取消"
+                collected_output += cancel_msg
+                with open(output_file, 'a', encoding='utf-8') as f:
+                    f.write(cancel_msg)
                 exit_code = -1
                 status = "killed"
                 
         except Exception as e:
             logger.error(f"执行脚本失败: {e}")
-            collected_output += f"\n执行失败: {str(e)}"
+            error_msg = f"\n执行失败: {str(e)}"
+            collected_output += error_msg
+            with open(output_file, 'a', encoding='utf-8') as f:
+                f.write(error_msg)
             exit_code = -1
             status = "failed"
             
         finally:
             self.running_processes.pop(run_history_id, None)
         
-        # 最终写回
+        # 最终写回（DB存储尾部1000行）
+        lines = collected_output.split('\n')
+        db_output = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
+        
         await self._update_db(
             run_history_id,
-            output=collected_output,
+            output=db_output,
             exit_code=exit_code,
             status=status,
             finished_at=datetime.now()

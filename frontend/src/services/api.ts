@@ -85,6 +85,7 @@ export interface RunHistoryItem {
   parameters: string
   command: string
   output: string
+  output_file: string | null
   exit_code: number | null
   status: string
   duration: number | null
