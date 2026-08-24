@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
-import { Table, Input, Button, Space, Tree, message, Tag, Select } from 'antd'
-import { ScanOutlined, SearchOutlined } from '@ant-design/icons'
+import { Table, Input, Button, Space, Tree, message, Tag, Select, Card } from 'antd'
+import { ScanOutlined, SearchOutlined, FolderOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ScriptItem } from '../services/api'
@@ -39,6 +39,7 @@ function buildTree(scripts: ScriptItem[]): DataNode[] {
       return {
         title: name,
         key: `dir:${path}`,
+        icon: <FolderOutlined style={{ color: '#faad14' }} />,
         children: toTree(val.__children || {}, path),
       }
     })
@@ -64,7 +65,7 @@ export default function ScriptLibrary() {
       dataIndex: 'name',
       key: 'name',
       render: (name: string, record: ScriptItem) => (
-        <a onClick={() => navigate(`/scripts/${record.id}`)}>{name}</a>
+        <a onClick={() => navigate(`/scripts/${record.id}`)} style={{ fontWeight: 500 }}>{name}</a>
       ),
     },
     {
@@ -98,16 +99,21 @@ export default function ScriptLibrary() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16 }}>
-      <div style={{ width: 200, borderRight: '1px solid #f0f0f0', paddingRight: 16 }}>
+    <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 160px)' }}>
+      <Card
+        size="small"
+        style={{ width: 220, flexShrink: 0, overflow: 'auto' }}
+        styles={{ body: { padding: '12px 0' } }}
+      >
         <Tree
-          treeData={[{ title: '全部', key: '__all__', children: treeData }]}
+          treeData={[{ title: '全部脚本', key: '__all__', children: treeData }]}
           defaultExpandAll
           onSelect={handleTreeSelect}
+          showIcon
         />
-      </div>
-      <div style={{ flex: 1 }}>
-        <Space style={{ marginBottom: 16 }}>
+      </Card>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Space style={{ marginBottom: 16 }} wrap>
           <Input
             placeholder="搜索脚本..."
             prefix={<SearchOutlined />}
@@ -138,9 +144,11 @@ export default function ScriptLibrary() {
             current: page,
             pageSize,
             total,
+            showTotal: (t) => `共 ${t} 个脚本`,
             onChange: (p) => useScriptStore.setState({ page: p }),
           }}
           size="small"
+          style={{ flex: 1 }}
         />
       </div>
     </div>

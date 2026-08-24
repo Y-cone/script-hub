@@ -7,6 +7,7 @@ import type { ParamDef } from '../services/api'
 import { runScript, killRun, updateScript } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
+import '../styles/danger.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
   python: 'blue',
@@ -342,6 +343,7 @@ export default function ScriptDetail() {
           <Descriptions.Item label="相对路径">{currentScript.relative_path}</Descriptions.Item>
           <Descriptions.Item label="危险脚本">
             <Switch
+              className="danger-switch"
               checked={currentScript.dangerous}
               onChange={async (checked) => {
                 try {
