@@ -160,13 +160,14 @@ export default function RunHistory() {
 
   return (
     <>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-        <Button
-          icon={<ReloadOutlined />}
-          onClick={() => fetchData(pagination.current, pagination.pageSize)}
-        >
-          刷新
-        </Button>
+      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
+        <Tooltip title="刷新">
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={() => fetchData(pagination.current, pagination.pageSize)}
+          />
+        </Tooltip>
       </div>
       <Table
         dataSource={data}
