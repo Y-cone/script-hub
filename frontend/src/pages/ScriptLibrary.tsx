@@ -148,7 +148,7 @@ export default function ScriptLibrary() {
             onChange: (p) => useScriptStore.setState({ page: p }),
           }}
           size="small"
-          style={{ flex: 1 }}
+          scroll={{ y: 'calc(100vh - 280px)' }}
         />
       </div>
     </div>
