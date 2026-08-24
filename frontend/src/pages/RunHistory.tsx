@@ -64,13 +64,13 @@ export default function RunHistory() {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 70,
+      width: 60,
     },
     {
       title: '脚本ID',
       dataIndex: 'script_id',
       key: 'script_id',
-      width: 80,
+      width: 70,
     },
     {
       title: '执行命令',
@@ -94,7 +94,7 @@ export default function RunHistory() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 90,
+      width: 80,
       render: (status: string) => (
         <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status] || status}</Tag>
       ),
@@ -103,7 +103,7 @@ export default function RunHistory() {
       title: '退出码',
       dataIndex: 'exit_code',
       key: 'exit_code',
-      width: 80,
+      width: 70,
       render: (code: number | null) => {
         if (code === null || code === undefined) return '-'
         return code === 0 
@@ -115,7 +115,7 @@ export default function RunHistory() {
       title: '耗时',
       dataIndex: 'duration',
       key: 'duration',
-      width: 90,
+      width: 80,
       render: (duration: number | null) => {
         if (!duration) return '-'
         return duration < 1 
@@ -127,13 +127,13 @@ export default function RunHistory() {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 170,
+      width: 160,
       render: (time: string) => new Date(time).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 140,
+      width: 160,
       render: (_: unknown, record: RunHistoryItem) => (
         <Space size="small">
           <Button
