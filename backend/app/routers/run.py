@@ -44,16 +44,28 @@ async def run_script(
     await db.refresh(run_history)
     
     # 立即启动后台任务（真正的并发，不阻塞事件循环）
-    asyncio.create_task(
-        executor.execute_script(
-            script=script,
-            run_history_id=run_history.id,
-            parameters=request.parameters or {},
-            working_dir=request.working_dir,
-            env_vars=request.env_vars,
-            timeout=request.timeout or script.timeout or 0
-        )
-    )
+    async def _run():
+        try:
+            await executor.execute_script(
+                script=script,
+                run_history_id=run_history.id,
+                parameters=request.parameters or {},
+                working_dir=request.working_dir,
+                env_vars=request.env_vars,
+                timeout=request.timeout or script.timeout or 0
+            )
+        except Exception as e:
+            logger.error(f"后台任务异常: {e}")
+            # 确保状态更新为 failed
+            await executor._update_db(
+                run_history.id,
+                status="failed",
+                exit_code=-1,
+                output=f"执行异常: {str(e)}",
+                finished_at=datetime.now()
+            )
+    
+    asyncio.create_task(_run())
     
     return RunResponse(
         id=run_history.id,

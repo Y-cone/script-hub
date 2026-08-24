@@ -24,8 +24,23 @@ class ScriptExecutor:
     
     def __init__(self):
         self.running_processes: Dict[int, asyncio.subprocess.Process] = {}
-        # 确保日志目录存在
-        RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        # 确保日志目录存在（用当前用户权限）
+        try:
+            RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        except PermissionError:
+            logger.warning(f"无法创建日志目录 {RUNS_DIR}，日志文件功能将不可用")
+    
+    def _write_log(self, output_file: Optional[Path], content: str, mode: str = 'a'):
+        """写入日志文件，失败时静默降级"""
+        if not output_file:
+            return False
+        try:
+            with open(output_file, mode, encoding='utf-8') as f:
+                f.write(content)
+            return True
+        except (PermissionError, OSError) as e:
+            logger.warning(f"写入日志文件失败: {e}")
+            return False
     
     async def _update_db(self, run_history_id: int, **kwargs):
         """更新运行记录的指定字段"""
@@ -66,12 +81,17 @@ class ScriptExecutor:
         # 确定工作目录
         cwd = working_dir or script.working_dir or str(Path(script.path).parent)
         
-        # 创建输出日志文件
+        # 尝试创建输出日志文件
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = RUNS_DIR / f"run_{run_history_id}_{timestamp}.log"
         
+        # 测试文件是否可写
+        file_writable = self._write_log(output_file, "", mode='w')
+        if not file_writable:
+            output_file = None  # 降级为纯DB模式
+        
         # 更新命令和输出文件路径到数据库
-        await self._update_db(run_history_id, command=command, output_file=str(output_file))
+        await self._update_db(run_history_id, command=command, output_file=str(output_file) if output_file else None)
         
         try:
             # 启动进程
@@ -90,10 +110,7 @@ class ScriptExecutor:
             # 实时读取输出并写入DB和文件
             collected_output = f"$ {command}\n\n"
             await self._update_db(run_history_id, output=collected_output)
-            
-            # 写入文件
-            with open(output_file, 'w', encoding='utf-8') as f:
-                f.write(collected_output)
+            self._write_log(output_file, collected_output, mode='w')
             
             # 并行读取 stdout 和 stderr
             async def read_stream(stream, is_stderr=False):
@@ -105,9 +122,8 @@ class ScriptExecutor:
                     text = line.decode('utf-8', errors='replace')
                     collected_output += text
                     
-                    # 写入文件（完整输出）
-                    with open(output_file, 'a', encoding='utf-8') as f:
-                        f.write(text)
+                    # 写入文件（降级模式下跳过）
+                    self._write_log(output_file, text)
                     
                     # DB只存储尾部1000行（ponytail: 高频写，后续可改为批量/节流写）
                     lines = collected_output.split('\n')
@@ -134,15 +150,13 @@ class ScriptExecutor:
                 await self._kill_process_tree(process)
                 timeout_msg = f"\n[超时] 脚本执行超过 {timeout} 秒"
                 collected_output += timeout_msg
-                with open(output_file, 'a', encoding='utf-8') as f:
-                    f.write(timeout_msg)
+                self._write_log(output_file, timeout_msg)
                 exit_code = -1
                 status = "timeout"
             except asyncio.CancelledError:
                 cancel_msg = "\n[取消] 脚本被取消"
                 collected_output += cancel_msg
-                with open(output_file, 'a', encoding='utf-8') as f:
-                    f.write(cancel_msg)
+                self._write_log(output_file, cancel_msg)
                 exit_code = -1
                 status = "killed"
                 
@@ -150,8 +164,7 @@ class ScriptExecutor:
             logger.error(f"执行脚本失败: {e}")
             error_msg = f"\n执行失败: {str(e)}"
             collected_output += error_msg
-            with open(output_file, 'a', encoding='utf-8') as f:
-                f.write(error_msg)
+            self._write_log(output_file, error_msg)
             exit_code = -1
             status = "failed"
             
