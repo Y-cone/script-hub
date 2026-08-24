@@ -160,20 +160,23 @@ export default function RunHistory() {
 
   return (
     <>
-      <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'flex-end' }}>
-        <Tooltip title="刷新">
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => fetchData(pagination.current, pagination.pageSize)}
-          />
-        </Tooltip>
-      </div>
       <Table
         dataSource={data}
         columns={columns}
         rowKey="id"
         loading={loading}
+        title={() => (
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Tooltip title="刷新">
+              <Button
+                size="small"
+                type="text"
+                icon={<ReloadOutlined />}
+                onClick={() => fetchData(pagination.current, pagination.pageSize)}
+              />
+            </Tooltip>
+          </div>
+        )}
         pagination={{
           ...pagination,
           showSizeChanger: true,
