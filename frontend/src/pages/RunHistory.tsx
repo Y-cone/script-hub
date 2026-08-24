@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Card, Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
+import { Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
 import { ReloadOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
@@ -160,31 +160,27 @@ export default function RunHistory() {
 
   return (
     <>
-      <Card
-        title="运行历史"
-        extra={
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => fetchData(pagination.current, pagination.pageSize)}
-          >
-            刷新
-          </Button>
-        }
-      >
-        <Table
-          dataSource={data}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={{
-            ...pagination,
-            showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条记录`,
-            onChange: (page, pageSize) => fetchData(page, pageSize),
-          }}
-          scroll={{ y: 'calc(100vh - 240px)' }}
-        />
-      </Card>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={() => fetchData(pagination.current, pagination.pageSize)}
+        >
+          刷新
+        </Button>
+      </div>
+      <Table
+        dataSource={data}
+        columns={columns}
+        rowKey="id"
+        loading={loading}
+        pagination={{
+          ...pagination,
+          showSizeChanger: true,
+          showTotal: (total) => `共 ${total} 条记录`,
+          onChange: (page, pageSize) => fetchData(page, pageSize),
+        }}
+        scroll={{ y: 'calc(100vh - 240px)' }}
+      />
 
       <Modal
         title={
