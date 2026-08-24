@@ -230,6 +230,7 @@ export default function RunHistory() {
             showTotal: (total) => `共 ${total} 条记录`,
             onChange: (page, pageSize) => fetchData(page, pageSize),
           }}
+          scroll={{ y: 'calc(100vh - 340px)' }}
         />
       </Card>
 
