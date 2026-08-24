@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Card, Table, Tag, Button, Space, message, Tooltip, Modal, Statistic, Row, Col } from 'antd'
-import { ReloadOutlined, DownloadOutlined, EyeOutlined, CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
+import { ReloadOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
 
@@ -64,13 +64,13 @@ export default function RunHistory() {
       title: 'ID',
       dataIndex: 'id',
       key: 'id',
-      width: 60,
+      width: 50,
     },
     {
       title: '脚本ID',
       dataIndex: 'script_id',
       key: 'script_id',
-      width: 70,
+      width: 80,
     },
     {
       title: '执行命令',
@@ -94,7 +94,7 @@ export default function RunHistory() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
+      width: 70,
       render: (status: string) => (
         <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status] || status}</Tag>
       ),
@@ -103,7 +103,7 @@ export default function RunHistory() {
       title: '退出码',
       dataIndex: 'exit_code',
       key: 'exit_code',
-      width: 70,
+      width: 80,
       render: (code: number | null) => {
         if (code === null || code === undefined) return '-'
         return code === 0 
@@ -158,56 +158,8 @@ export default function RunHistory() {
     },
   ]
 
-  // 统计
-  const stats = data.reduce((acc, item) => {
-    acc[item.status] = (acc[item.status] || 0) + 1
-    return acc
-  }, {} as Record<string, number>)
-
   return (
     <>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="总运行次数"
-              value={pagination.total}
-              prefix={<ClockCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="成功"
-              value={stats.success || 0}
-              valueStyle={{ color: '#3f8600' }}
-              prefix={<CheckCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="失败"
-              value={stats.failed || 0}
-              valueStyle={{ color: '#cf1322' }}
-              prefix={<CloseCircleOutlined />}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic
-              title="已终止"
-              value={stats.killed || 0}
-              valueStyle={{ color: '#d48806' }}
-              prefix={<CloseCircleOutlined />}
-            />
-          </Card>
-        </Col>
-      </Row>
-
       <Card
         title="运行历史"
         extra={
@@ -230,7 +182,7 @@ export default function RunHistory() {
             showTotal: (total) => `共 ${total} 条记录`,
             onChange: (page, pageSize) => fetchData(page, pageSize),
           }}
-          scroll={{ y: 'calc(100vh - 340px)' }}
+          scroll={{ y: 'calc(100vh - 240px)' }}
         />
       </Card>
 
