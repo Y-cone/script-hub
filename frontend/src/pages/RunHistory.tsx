@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
-import { ReloadOutlined, DownloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
 
@@ -165,18 +165,6 @@ export default function RunHistory() {
         columns={columns}
         rowKey="id"
         loading={loading}
-        title={() => (
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-            <Tooltip title="刷新">
-              <Button
-                size="small"
-                type="text"
-                icon={<ReloadOutlined />}
-                onClick={() => fetchData(pagination.current, pagination.pageSize)}
-              />
-            </Tooltip>
-          </div>
-        )}
         pagination={{
           ...pagination,
           showSizeChanger: true,
