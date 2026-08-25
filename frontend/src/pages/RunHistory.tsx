@@ -70,7 +70,7 @@ export default function RunHistory() {
       title: '脚本ID',
       dataIndex: 'script_id',
       key: 'script_id',
-      width: 80,
+      width: 60,
     },
     {
       title: '执行命令',
@@ -103,7 +103,7 @@ export default function RunHistory() {
       title: '退出码',
       dataIndex: 'exit_code',
       key: 'exit_code',
-      width: 80,
+      width: 60,
       render: (code: number | null) => {
         if (code === null || code === undefined) return '-'
         return code === 0 
@@ -115,7 +115,7 @@ export default function RunHistory() {
       title: '耗时',
       dataIndex: 'duration',
       key: 'duration',
-      width: 80,
+      width: 70,
       render: (duration: number | null) => {
         if (!duration) return '-'
         return duration < 1 
@@ -127,13 +127,14 @@ export default function RunHistory() {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 160,
+      width: 150,
       render: (time: string) => new Date(time).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 160,
+      width: 130,
+      fixed: 'right' as const,
       render: (_: unknown, record: RunHistoryItem) => (
         <Space size="small">
           <Button
