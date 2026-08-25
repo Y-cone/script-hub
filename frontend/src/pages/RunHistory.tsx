@@ -70,13 +70,13 @@ export default function RunHistory() {
       title: '脚本ID',
       dataIndex: 'script_id',
       key: 'script_id',
-      width: 70,
+      width: 45,
     },
     {
       title: '执行命令',
       dataIndex: 'command',
       key: 'command',
-      width: 150,
+      width: 270,
       ellipsis: true,
       render: (command: string) => (
         <Tooltip title={command}>
@@ -95,7 +95,7 @@ export default function RunHistory() {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 70,
+      width: 50,
       render: (status: string) => (
         <Tag color={STATUS_COLORS[status]}>{STATUS_LABELS[status] || status}</Tag>
       ),
@@ -104,7 +104,7 @@ export default function RunHistory() {
       title: '退出码',
       dataIndex: 'exit_code',
       key: 'exit_code',
-      width: 60,
+      width: 45,
       render: (code: number | null) => {
         if (code === null || code === undefined) return '-'
         return code === 0 
@@ -116,7 +116,7 @@ export default function RunHistory() {
       title: '耗时',
       dataIndex: 'duration',
       key: 'duration',
-      width: 70,
+      width: 50,
       render: (duration: number | null) => {
         if (!duration) return '-'
         return duration < 1 
@@ -128,13 +128,13 @@ export default function RunHistory() {
       title: '开始时间',
       dataIndex: 'started_at',
       key: 'started_at',
-      width: 150,
+      width: 100,
       render: (time: string) => new Date(time).toLocaleString(),
     },
     {
       title: '操作',
       key: 'actions',
-      width: 130,
+      width: 100,
       render: (_: unknown, record: RunHistoryItem) => (
         <Space size="small">
           <Button
@@ -173,7 +173,7 @@ export default function RunHistory() {
           showTotal: (total) => `共 ${total} 条记录`,
           onChange: (page, pageSize) => fetchData(page, pageSize),
         }}
-        scroll={{ y: 'calc(100vh - 280px)' }}
+        scroll={{ y: 'calc(100vh - 250px)' }}
       />
 
       <Modal
