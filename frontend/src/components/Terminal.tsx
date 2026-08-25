@@ -37,20 +37,21 @@ export default function Terminal({ output, status, onClear }: TerminalProps) {
   useEffect(() => {
     if (!xtermRef.current) return
     xtermRef.current.clear()
-    if (output) {
-      // xterm.js 需要 \r\n 换行
-      xtermRef.current.write(output.replace(/\n/g, '\r\n'))
-    }
+    // 先显示状态
     if (status === 'running') {
-      xtermRef.current.write('\r\n\x1b[33m[运行中...]\x1b[0m')
+      xtermRef.current.write('\x1b[33m[运行中...]\x1b[0m\r\n')
     } else if (status === 'success') {
-      xtermRef.current.write('\r\n\x1b[32m[执行成功]\x1b[0m')
+      xtermRef.current.write('\x1b[32m[执行成功]\x1b[0m\r\n')
     } else if (status === 'failed') {
-      xtermRef.current.write('\r\n\x1b[31m[执行失败]\x1b[0m')
+      xtermRef.current.write('\x1b[31m[执行失败]\x1b[0m\r\n')
     } else if (status === 'timeout') {
-      xtermRef.current.write('\r\n\x1b[31m[执行超时]\x1b[0m')
+      xtermRef.current.write('\x1b[31m[执行超时]\x1b[0m\r\n')
     } else if (status === 'killed') {
-      xtermRef.current.write('\r\n\x1b[31m[已终止]\x1b[0m')
+      xtermRef.current.write('\x1b[31m[已终止]\x1b[0m\r\n')
+    }
+    // 再显示输出
+    if (output) {
+      xtermRef.current.write('\r\n' + output.replace(/\n/g, '\r\n'))
     }
   }, [output, status])
 
