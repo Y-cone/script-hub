@@ -1,9 +1,13 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from .database import init_db
 from .routers.script import router as script_router
 from .routers.run import router as run_router
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -20,6 +24,17 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理"""
+    logger.error(f"Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "服务器内部错误，请查看日志"}
+    )
+
 
 app.include_router(script_router)
 app.include_router(run_router)
