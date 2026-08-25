@@ -70,13 +70,13 @@ export default function RunHistory() {
       title: '脚本ID',
       dataIndex: 'script_id',
       key: 'script_id',
-      width: 60,
+      width: 70,
     },
     {
       title: '执行命令',
       dataIndex: 'command',
       key: 'command',
-      width: 200,
+      width: 150,
       ellipsis: true,
       render: (command: string) => (
         <Tooltip title={command}>
@@ -173,7 +173,7 @@ export default function RunHistory() {
           showTotal: (total) => `共 ${total} 条记录`,
           onChange: (page, pageSize) => fetchData(page, pageSize),
         }}
-        scroll={{ x: 'max-content', y: 'calc(100vh - 280px)' }}
+        scroll={{ y: 'calc(100vh - 280px)' }}
       />
 
       <Modal
