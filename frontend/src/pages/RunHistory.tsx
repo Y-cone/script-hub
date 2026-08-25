@@ -76,6 +76,7 @@ export default function RunHistory() {
       title: '执行命令',
       dataIndex: 'command',
       key: 'command',
+      width: 200,
       ellipsis: true,
       render: (command: string) => (
         <Tooltip title={command}>
@@ -134,7 +135,6 @@ export default function RunHistory() {
       title: '操作',
       key: 'actions',
       width: 130,
-      fixed: 'right' as const,
       render: (_: unknown, record: RunHistoryItem) => (
         <Space size="small">
           <Button
@@ -160,13 +160,12 @@ export default function RunHistory() {
   ]
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <Table
         dataSource={data}
         columns={columns}
         rowKey="id"
         loading={loading}
-        style={{ flex: 1 }}
         pagination={{
           ...pagination,
           showSizeChanger: true,
