@@ -69,8 +69,10 @@ export default function AppLayout() {
           padding: 24,
           background: colorBgContainer,
           borderRadius: borderRadiusLG,
-          overflow: 'auto',
+          overflow: 'hidden',
           flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
         }}>
           <Outlet />
         </Content>

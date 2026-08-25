@@ -99,7 +99,7 @@ export default function ScriptLibrary() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 160px)' }}>
+    <div style={{ display: 'flex', gap: 16, flex: 1, overflow: 'hidden' }}>
       <Card
         size="small"
         style={{ width: 220, flexShrink: 0, overflow: 'auto' }}
@@ -112,7 +112,7 @@ export default function ScriptLibrary() {
           showIcon
         />
       </Card>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Space style={{ marginBottom: 16 }} wrap>
           <Input
             placeholder="搜索脚本..."
@@ -140,6 +140,7 @@ export default function ScriptLibrary() {
           columns={columns}
           rowKey="id"
           loading={loading}
+          style={{ flex: 1 }}
           pagination={{
             current: page,
             pageSize,
@@ -148,7 +149,7 @@ export default function ScriptLibrary() {
             onChange: (p) => useScriptStore.setState({ page: p }),
           }}
           size="small"
-          scroll={{ y: 'calc(100vh - 280px)' }}
+          scroll={{ x: 'max-content' }}
         />
       </div>
     </div>
