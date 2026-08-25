@@ -15,7 +15,7 @@ export default function AppLayout() {
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken()
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
       <Sider
         collapsible
         theme="dark"
@@ -51,7 +51,7 @@ export default function AppLayout() {
           style={{ borderRight: 0 }}
         />
       </Sider>
-      <Layout style={{ marginLeft: 200 }}>
+      <Layout style={{ marginLeft: 200, height: '100vh', overflow: 'hidden' }}>
         <Header style={{
           background: colorBgContainer,
           padding: '0 24px',
@@ -60,6 +60,7 @@ export default function AppLayout() {
           borderBottom: '1px solid #f0f0f0',
           display: 'flex',
           alignItems: 'center',
+          flexShrink: 0,
         }}>
           {location.pathname === '/' ? '脚本库' : location.pathname === '/history' ? '运行历史' : '脚本详情'}
         </Header>
@@ -68,7 +69,8 @@ export default function AppLayout() {
           padding: 24,
           background: colorBgContainer,
           borderRadius: borderRadiusLG,
-          minHeight: 280,
+          overflow: 'auto',
+          flex: 1,
         }}>
           <Outlet />
         </Content>

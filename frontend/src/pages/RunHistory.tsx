@@ -171,7 +171,7 @@ export default function RunHistory() {
           showTotal: (total) => `共 ${total} 条记录`,
           onChange: (page, pageSize) => fetchData(page, pageSize),
         }}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: 'max-content', y: 'calc(100vh - 260px)' }}
       />
 
       <Modal
