@@ -160,19 +160,20 @@ export default function RunHistory() {
   ]
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}>
       <Table
         dataSource={data}
         columns={columns}
         rowKey="id"
         loading={loading}
+        style={{ flex: 1 }}
         pagination={{
           ...pagination,
           showSizeChanger: true,
           showTotal: (total) => `共 ${total} 条记录`,
           onChange: (page, pageSize) => fetchData(page, pageSize),
         }}
-        scroll={{ x: 'max-content' }}
+        scroll={{ x: 'max-content', y: 'calc(100vh - 280px)' }}
       />
 
       <Modal
