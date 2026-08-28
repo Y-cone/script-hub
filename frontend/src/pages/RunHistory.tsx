@@ -71,6 +71,7 @@ export default function RunHistory() {
       dataIndex: 'script_id',
       key: 'script_id',
       width: 45,
+      render: (v: number | null) => (v == null ? <span style={{ color: '#999' }}>已删除</span> : v),
     },
     {
       title: '执行命令',

@@ -54,7 +54,7 @@ export default function ScriptLibrary() {
   const navigate = useNavigate()
   const {
     scripts, total, page, pageSize, loading, search, category, selectedTagIds,
-    setSearch, setCategory, setSelectedTagIds, fetchScripts, doScan, doUpload, setDirectory,
+    setSearch, setCategory, setSelectedTagIds, setPageSize, fetchScripts, doScan, doUpload, setDirectory,
   } = useScriptStore()
 
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -220,7 +220,15 @@ export default function ScriptLibrary() {
             pageSize,
             total,
             showTotal: (t) => `共 ${t} 个脚本`,
-            onChange: (p) => useScriptStore.setState({ page: p }),
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            onChange: (p, size) => {
+              useScriptStore.setState({ page: p })
+              if (size !== pageSize) {
+                setPageSize(size)
+                useScriptStore.setState({ page: 1 })
+              }
+            },
           }}
           size="small"
           scroll={{ x: 'max-content', y: 'calc(100vh - 300px)' }}

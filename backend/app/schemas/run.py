@@ -21,7 +21,7 @@ class RunResponse(BaseModel):
 
 class RunHistoryOut(BaseModel):
     id: int
-    script_id: int
+    script_id: Optional[int]
     parameters: str
     command: str
     output: str

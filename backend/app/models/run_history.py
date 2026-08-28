@@ -8,7 +8,7 @@ class RunHistory(Base):
     __tablename__ = "run_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    script_id: Mapped[int] = mapped_column(Integer, ForeignKey("scripts.id"))
+    script_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("scripts.id", ondelete="SET NULL"), nullable=True)
     parameters: Mapped[str] = mapped_column(Text, default="{}")  # JSON
     command: Mapped[str] = mapped_column(String(2048), default="")
     output: Mapped[str] = mapped_column(Text, default="")

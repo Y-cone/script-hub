@@ -27,6 +27,7 @@ interface ScriptState {
   setDirectory: (d: string) => void
   setCategory: (c: string) => void
   setSelectedTagIds: (ids: number[]) => void
+  setPageSize: (n: number) => void
   fetchScripts: () => Promise<void>
   fetchScript: (id: number) => Promise<void>
   fetchContent: (id: number) => Promise<void>
@@ -54,6 +55,7 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   setDirectory: (d) => set({ directory: d }),
   setCategory: (c) => set({ category: c }),
   setSelectedTagIds: (ids) => set({ selectedTagIds: ids }),
+  setPageSize: (n) => set({ pageSize: n }),
 
   fetchScripts: async () => {
     const { page, pageSize, search, directory, category, selectedTagIds } = get()

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
-from sqlalchemy import select, func, or_, delete
+from sqlalchemy import select, func, or_, delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.script import Script
@@ -151,7 +151,7 @@ async def update_script(script_id: int, data: ScriptUpdate, db: AsyncSession = D
 
 @router.delete("/{script_id}")
 async def delete_script(script_id: int, db: AsyncSession = Depends(get_db)):
-    """删除脚本：磁盘文件 + 关联运行历史 + DB 记录"""
+    """删除脚本：磁盘文件 + DB 记录（运行历史通过 ON DELETE SET NULL 保留，script_id 置空）"""
     result = await db.execute(select(Script).where(Script.id == script_id))
     script = result.scalar_one_or_none()
     if not script:
@@ -166,11 +166,12 @@ async def delete_script(script_id: int, db: AsyncSession = Depends(get_db)):
         except OSError:
             raise HTTPException(500, "删除磁盘文件失败")
 
-    # 删除关联运行历史（避免外键约束失败）
-    await db.execute(delete(RunHistory).where(RunHistory.script_id == script_id))
+    # 删除脚本记录；关联运行历史 script_id 由外键 SET NULL 自动置空保留
+    # （手动置空兜底，避免依赖 PRAGMA 在部分连接未启用）
+    await db.execute(update(RunHistory).where(RunHistory.script_id == script_id).values(script_id=None))
     await db.delete(script)
     await db.commit()
-    return {"message": "脚本已删除", "id": script_id}
+    return {"message": "脚本已删除，运行历史已保留", "id": script_id}
 
 
 @router.post("/{script_id}/move", response_model=ScriptOut)

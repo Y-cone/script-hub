@@ -6,10 +6,10 @@ from pathlib import Path
 DB_PATH = Path(__file__).parent.parent.parent / "data" / "scripthub.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
-engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False)
+engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False, connect_args={"timeout": 30})
 
 
-# SQLite 默认关闭外键约束，需在每次连接后显式开启（否则 ON DELETE CASCADE 不生效）
+# SQLite 默认关闭外键约束，需在每次连接后显式开启
 @event.listens_for(engine.sync_engine, "connect")
 def _set_sqlite_pragma(dbapi_conn, _):
     cursor = dbapi_conn.cursor()
@@ -29,6 +29,26 @@ _COLUMN_MIGRATIONS = [
     ("scripts", "source", "VARCHAR(20) DEFAULT 'scan'"),
 ]
 
+# 需要重建表以更新外键/可空约束的表：{表名: 建表DDL}
+# 背景：run_history.script_id 需改为可空 + ON DELETE SET NULL，以支持删除脚本时保留历史
+_TABLE_REBUILDS = {
+    "run_history": """
+        CREATE TABLE run_history_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            script_id INTEGER REFERENCES scripts(id) ON DELETE SET NULL,
+            parameters TEXT NOT NULL DEFAULT '{}',
+            command VARCHAR(2048) NOT NULL DEFAULT '',
+            output TEXT NOT NULL DEFAULT '',
+            output_file VARCHAR(1024),
+            exit_code INTEGER,
+            status VARCHAR(20) NOT NULL DEFAULT 'pending',
+            duration FLOAT,
+            started_at DATETIME,
+            finished_at DATETIME
+        )
+    """,
+}
+
 
 async def _apply_migrations():
     async with engine.begin() as conn:
@@ -41,8 +61,41 @@ async def _apply_migrations():
                 await conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}"))
 
 
+async def _rebuild_tables():
+    """重建部分表以更新约束（幂等：仅当表未带目标约束时重建）"""
+    async with engine.begin() as conn:
+        for table, ddl_template in _TABLE_REBUILDS.items():
+            # 检查旧表外键是否含 ON DELETE SET NULL（已迁移则跳过）
+            fk_row = (
+                await conn.execute(
+                    text(f"SELECT sql FROM sqlite_master WHERE type='table' AND name='{table}'")
+                )
+            ).scalar()
+            if fk_row and "ON DELETE SET NULL" in fk_row:
+                continue  # 已迁移
+
+            cols = (
+                await conn.execute(
+                    text(f"SELECT name FROM pragma_table_info('{table}')")
+                )
+            ).all()
+            col_names = [c[0] for c in cols]
+            col_list = ", ".join(f'"{c}"' for c in col_names)
+
+            # 建新表
+            await conn.execute(text(ddl_template))
+
+            # 复制数据
+            await conn.execute(text(f'INSERT INTO run_history_new ({col_list}) SELECT {col_list} FROM {table}'))
+
+            # 删旧表，改名
+            await conn.execute(text(f"DROP TABLE {table}"))
+            await conn.execute(text(f"ALTER TABLE run_history_new RENAME TO {table}"))
+
+
 async def init_db():
     await _apply_migrations()
+    await _rebuild_tables()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
