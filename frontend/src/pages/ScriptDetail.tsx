@@ -4,11 +4,12 @@ import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, 
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getScriptDirs, getTags, setScriptTags } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags } from '../services/api'
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
+import DirSelect from '../components/DirSelect'
 import '../styles/danger.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -73,8 +74,6 @@ export default function ScriptDetail() {
   // 标签
   const [allTags, setAllTags] = useState<TagItem[]>([])
   const [scriptTagIds, setScriptTagIds] = useState<number[]>([])
-  // 目录下拉
-  const [dirOptions, setDirOptions] = useState<string[]>([])
 
   useEffect(() => {
     if (id) {
@@ -85,7 +84,6 @@ export default function ScriptDetail() {
 
   useEffect(() => {
     getTags().then((res) => setAllTags(res.data.items)).catch(() => {})
-    getScriptDirs().then((res) => setDirOptions(res.data.directories)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -362,16 +360,9 @@ export default function ScriptDetail() {
             <Tag color={CATEGORY_COLORS[currentScript.category]}>{currentScript.category}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="所在目录">
-            <Select
-              size="small"
-              placeholder="选择目录"
-              defaultValue={currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/') || undefined}
-              style={{ width: 200 }}
-              options={[
-                { label: '(根目录)', value: '' },
-                ...dirOptions.map((d) => ({ label: d, value: d })),
-              ]}
-              onChange={async (dir: string) => {
+            <DirSelect
+              value={currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/')}
+              onChange={async (dir) => {
                 try {
                   const { data } = await moveScript(currentScript.id, dir)
                   useScriptStore.setState({ currentScript: data })
