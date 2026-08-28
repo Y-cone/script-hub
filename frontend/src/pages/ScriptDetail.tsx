@@ -4,7 +4,7 @@ import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, 
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getScriptDirs, getTags, setScriptTags } from '../services/api'
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
@@ -73,6 +73,8 @@ export default function ScriptDetail() {
   // 标签
   const [allTags, setAllTags] = useState<TagItem[]>([])
   const [scriptTagIds, setScriptTagIds] = useState<number[]>([])
+  // 目录下拉
+  const [dirOptions, setDirOptions] = useState<string[]>([])
 
   useEffect(() => {
     if (id) {
@@ -83,6 +85,7 @@ export default function ScriptDetail() {
 
   useEffect(() => {
     getTags().then((res) => setAllTags(res.data.items)).catch(() => {})
+    getScriptDirs().then((res) => setDirOptions(res.data.directories)).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -359,12 +362,16 @@ export default function ScriptDetail() {
             <Tag color={CATEGORY_COLORS[currentScript.category]}>{currentScript.category}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="所在目录">
-            <Input
+            <Select
               size="small"
-              placeholder="相对脚本根目录的子目录，如 network"
-              defaultValue={currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/')}
-              onPressEnter={async (e) => {
-                const dir = (e.target as HTMLInputElement).value.trim()
+              placeholder="选择目录"
+              defaultValue={currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/') || undefined}
+              style={{ width: 200 }}
+              options={[
+                { label: '(根目录)', value: '' },
+                ...dirOptions.map((d) => ({ label: d, value: d })),
+              ]}
+              onChange={async (dir: string) => {
                 try {
                   const { data } = await moveScript(currentScript.id, dir)
                   useScriptStore.setState({ currentScript: data })
@@ -373,11 +380,6 @@ export default function ScriptDetail() {
                   message.error(err?.response?.data?.detail || '移动失败')
                 }
               }}
-              style={{ width: 200 }}
-              suffix={(() => {
-                const dir = currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/')
-                return dir ? <span style={{ color: '#999', fontSize: 12 }}>当前: {dir || '/'}</span> : null
-              })()}
             />
           </Descriptions.Item>
           <Descriptions.Item label="危险脚本">

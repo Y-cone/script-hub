@@ -108,6 +108,20 @@ async def list_scripts(
     return ScriptListOut(items=_serialize_list(items, tag_map), total=total, page=page, page_size=page_size)
 
 
+@router.get("/dirs")
+async def list_script_dirs(db: AsyncSession = Depends(get_db)):
+    """返回脚本根目录下已有的子目录列表（相对路径）"""
+    root = get_script_root()
+    dirs = set()
+    if root.exists():
+        for p in root.rglob("*"):
+            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
+                rel_dir = p.parent.relative_to(root)
+                if str(rel_dir) != ".":
+                    dirs.add(str(rel_dir))
+    return {"directories": sorted(dirs)}
+
+
 @router.get("/{script_id}", response_model=ScriptOut)
 async def get_script(script_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Script).where(Script.id == script_id))
