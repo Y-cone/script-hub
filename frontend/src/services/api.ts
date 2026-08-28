@@ -52,6 +52,9 @@ export const updateScript = (id: number, data: Partial<ScriptItem>) =>
 export const moveScript = (id: number, directory: string) =>
   api.post<ScriptItem>(`/api/scripts/${id}/move`, { directory })
 
+export const deleteScript = (id: number) =>
+  api.delete(`/api/scripts/${id}`)
+
 export const getScriptDirs = () =>
   api.get<{ directories: string[] }>('/api/scripts/dirs')
 

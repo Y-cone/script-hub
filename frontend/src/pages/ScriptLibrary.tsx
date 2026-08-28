@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal } from 'antd'
-import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons'
+import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal, Popconfirm } from 'antd'
+import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
+import { deleteScript } from '../services/api'
 import type { ScriptItem } from '../services/api'
 import TagPicker from '../components/TagPicker'
 import type { DataNode } from 'antd/es/tree'
@@ -101,11 +102,38 @@ export default function ScriptLibrary() {
       key: 'relative_path',
       ellipsis: true,
     },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 70,
+      render: (_: unknown, record: ScriptItem) => (
+        <Popconfirm
+          title="删除脚本"
+          description="将删除磁盘文件及运行历史，确认？"
+          onConfirm={() => handleDelete(record)}
+          okText="删除"
+          okButtonProps={{ danger: true }}
+          cancelText="取消"
+        >
+          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+        </Popconfirm>
+      ),
+    },
   ]
 
   const handleScan = async () => {
     const result = await doScan()
     message.success(`扫描完成：新增 ${result.added}，更新 ${result.updated}，删除 ${result.removed}`)
+  }
+
+  const handleDelete = async (record: ScriptItem) => {
+    try {
+      await deleteScript(record.id)
+      message.success(`已删除 ${record.name}`)
+      fetchScripts()
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '删除失败')
+    }
   }
 
   const handleTreeSelect = (keys: React.Key[]) => {
@@ -142,7 +170,7 @@ export default function ScriptLibrary() {
       >
         <Tree
           treeData={[{ title: '全部脚本', key: '__all__', children: treeData }]}
-          defaultExpandAll
+          defaultExpandedKeys={['__all__', ...treeData.map((d) => d.key as string)]}
           onSelect={handleTreeSelect}
           showIcon
         />

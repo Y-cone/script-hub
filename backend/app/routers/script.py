@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.script import Script
 from ..models.tag import ScriptTag
+from ..models.run_history import RunHistory
 from ..config import get_script_root
 from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
 from ..schemas.tag import UploadResult
@@ -146,6 +147,30 @@ async def update_script(script_id: int, data: ScriptUpdate, db: AsyncSession = D
     await db.refresh(script)
     tag_map = await _load_tags(db, [script.id])
     return _dict_with_tags(script, tag_map.get(script.id, []))
+
+
+@router.delete("/{script_id}")
+async def delete_script(script_id: int, db: AsyncSession = Depends(get_db)):
+    """删除脚本：磁盘文件 + 关联运行历史 + DB 记录"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+
+    # 删除磁盘文件（若存在）
+    from pathlib import Path
+    p = Path(script.path)
+    if p.exists():
+        try:
+            p.unlink()
+        except OSError:
+            raise HTTPException(500, "删除磁盘文件失败")
+
+    # 删除关联运行历史（避免外键约束失败）
+    await db.execute(delete(RunHistory).where(RunHistory.script_id == script_id))
+    await db.delete(script)
+    await db.commit()
+    return {"message": "脚本已删除", "id": script_id}
 
 
 @router.post("/{script_id}/move", response_model=ScriptOut)
