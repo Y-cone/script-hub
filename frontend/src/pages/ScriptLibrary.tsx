@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from 'react'
-import { Table, Input, Button, Space, Tree, message, Tag, Select, Card } from 'antd'
-import { ScanOutlined, SearchOutlined, FolderOutlined } from '@ant-design/icons'
+import { useEffect, useMemo, useState } from 'react'
+import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal } from 'antd'
+import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
-import type { ScriptItem } from '../services/api'
+import { getTags } from '../services/api'
+import type { ScriptItem, TagItem } from '../services/api'
 import type { DataNode } from 'antd/es/tree'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -51,12 +52,20 @@ function buildTree(scripts: ScriptItem[]): DataNode[] {
 export default function ScriptLibrary() {
   const navigate = useNavigate()
   const {
-    scripts, total, page, pageSize, loading, search, category,
-    setSearch, setCategory, fetchScripts, doScan, setDirectory,
+    scripts, total, page, pageSize, loading, search, category, selectedTagIds,
+    setSearch, setCategory, setSelectedTagIds, fetchScripts, doScan, doUpload, setDirectory,
   } = useScriptStore()
 
-  useEffect(() => { fetchScripts() }, [page, search, category])
+  const [tags, setTags] = useState<TagItem[]>([])
+  const [uploadOpen, setUploadOpen] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
+  useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds])
+  useEffect(() => {
+    getTags().then((res) => setTags(res.data.items))
+  }, [])
+
+  const tagOptions = tags.map((t) => ({ label: t.name, value: t.id }))
   const treeData = useMemo(() => buildTree(scripts), [scripts])
 
   const columns = [
@@ -76,6 +85,18 @@ export default function ScriptLibrary() {
       render: (cat: string) => <Tag color={CATEGORY_COLORS[cat]}>{cat}</Tag>,
     },
     {
+      title: '标签',
+      dataIndex: 'tags',
+      key: 'tags',
+      width: 160,
+      render: (tags: string[]) =>
+        tags && tags.length ? (
+          <Space size={4} wrap>
+            {tags.map((t) => <Tag key={t} color="blue">{t}</Tag>)}
+          </Space>
+        ) : <span style={{ color: '#bbb' }}>-</span>,
+    },
+    {
       title: '路径',
       dataIndex: 'relative_path',
       key: 'relative_path',
@@ -86,6 +107,7 @@ export default function ScriptLibrary() {
   const handleScan = async () => {
     const result = await doScan()
     message.success(`扫描完成：新增 ${result.added}，更新 ${result.updated}，删除 ${result.removed}`)
+    getTags().then((res) => setTags(res.data.items))
   }
 
   const handleTreeSelect = (keys: React.Key[]) => {
@@ -96,6 +118,20 @@ export default function ScriptLibrary() {
       setDirectory('')
     }
     fetchScripts()
+  }
+
+  const handleUpload = async (file: File) => {
+    setUploading(true)
+    try {
+      await doUpload(file)
+      message.success(`已上传 ${file.name}`)
+      setUploadOpen(false)
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '上传失败')
+    } finally {
+      setUploading(false)
+    }
+    return false // 阻止 Upload 默认提交
   }
 
   return (
@@ -119,7 +155,7 @@ export default function ScriptLibrary() {
             prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 250 }}
+            style={{ width: 220 }}
             allowClear
           />
           <Select
@@ -129,8 +165,24 @@ export default function ScriptLibrary() {
               useScriptStore.setState({ page: 1 })
             }}
             options={CATEGORY_OPTIONS}
-            style={{ width: 130 }}
+            style={{ width: 120 }}
           />
+          <Select
+            mode="multiple"
+            placeholder="按标签筛选 (AND)"
+            value={selectedTagIds}
+            onChange={(vals) => {
+              setSelectedTagIds(vals)
+              useScriptStore.setState({ page: 1 })
+            }}
+            options={tagOptions}
+            maxTagCount="responsive"
+            style={{ minWidth: 180 }}
+            allowClear
+          />
+          <Button icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
+            上传脚本
+          </Button>
           <Button icon={<ScanOutlined />} onClick={handleScan} type="primary">
             扫描目录
           </Button>
@@ -152,6 +204,28 @@ export default function ScriptLibrary() {
           scroll={{ x: 'max-content' }}
         />
       </div>
+
+      <Modal
+        title="上传脚本"
+        open={uploadOpen}
+        onCancel={() => setUploadOpen(false)}
+        footer={null}
+        width={480}
+      >
+        <Upload.Dragger
+          multiple={false}
+          showUploadList={false}
+          accept=".py,.sh,.bat,.ps1"
+          beforeUpload={handleUpload}
+          disabled={uploading}
+        >
+          <p className="ant-upload-drag-icon">
+            {uploading ? <span style={{ color: '#1677ff' }}>上传中...</span> : <InboxOutlined />}
+          </p>
+          <p className="ant-upload-text">点击或拖拽脚本文件到此处上传</p>
+          <p className="ant-upload-hint">支持 .py / .sh / .bat / .ps1，最大 10MB</p>
+        </Upload.Dragger>
+      </Modal>
     </div>
   )
 }

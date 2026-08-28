@@ -15,6 +15,8 @@ export interface ScriptItem {
   env_vars: string | null
   dangerous: boolean
   timeout: number
+  source: string
+  tags: string[]
   created_at: string
   updated_at: string
 }
@@ -39,6 +41,7 @@ export const getScripts = (params?: {
   search?: string
   directory?: string
   category?: string
+  tag_ids?: string
 }) => api.get<ScriptListResponse>('/api/scripts', { params })
 
 export const getScript = (id: number) => api.get<ScriptItem>(`/api/scripts/${id}`)
@@ -47,6 +50,39 @@ export const updateScript = (id: number, data: Partial<ScriptItem>) =>
   api.put<ScriptItem>(`/api/scripts/${id}`, data)
 
 export const scanScripts = () => api.post<ScanResult>('/api/scripts/scan')
+
+export const uploadScript = (file: File, subdir = '') => {
+  const form = new FormData()
+  form.append('file', file)
+  return api.post<ScanResult>('/api/scripts/upload', form, {
+    params: subdir ? { subdir } : {},
+  })
+}
+
+// 标签 API
+export interface TagItem {
+  id: number
+  name: string
+  color: string
+  created_at: string
+}
+
+export const getTags = (search = '') =>
+  api.get<{ items: TagItem[]; total: number }>('/api/tags', { params: { search } })
+
+export const createTag = (data: { name: string; color?: string }) =>
+  api.post<TagItem>('/api/tags', data)
+
+export const updateTag = (id: number, data: { name?: string; color?: string }) =>
+  api.put<TagItem>(`/api/tags/${id}`, data)
+
+export const deleteTag = (id: number) => api.delete(`/api/tags/${id}`)
+
+export const getScriptTags = (id: number) =>
+  api.get<string[]>(`/api/scripts/${id}/tags`)
+
+export const setScriptTags = (id: number, tagIds: number[]) =>
+  api.put(`/api/scripts/${id}/tags`, { tag_ids: tagIds })
 
 export const getScriptContent = (id: number) =>
   api.get<{ content: string; language: string }>(`/api/scripts/${id}/content`)

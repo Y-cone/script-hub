@@ -6,6 +6,7 @@ import {
   getScriptContent,
   parseScriptParams,
   updateScript,
+  uploadScript,
 } from '../services/api'
 import type { ScriptItem, ParamDef } from '../services/api'
 
@@ -21,13 +22,16 @@ interface ScriptState {
   search: string
   directory: string
   category: string
+  selectedTagIds: number[]
   setSearch: (s: string) => void
   setDirectory: (d: string) => void
   setCategory: (c: string) => void
+  setSelectedTagIds: (ids: number[]) => void
   fetchScripts: () => Promise<void>
   fetchScript: (id: number) => Promise<void>
   fetchContent: (id: number) => Promise<void>
   doScan: () => Promise<{ added: number; updated: number; removed: number }>
+  doUpload: (file: File, subdir?: string) => Promise<void>
   parseParams: (id: number) => Promise<ParamDef[]>
   updateParams: (id: number, params: ParamDef[]) => Promise<void>
 }
@@ -44,16 +48,25 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   search: '',
   directory: '',
   category: '',
+  selectedTagIds: [],
 
   setSearch: (s) => set({ search: s }),
   setDirectory: (d) => set({ directory: d }),
   setCategory: (c) => set({ category: c }),
+  setSelectedTagIds: (ids) => set({ selectedTagIds: ids }),
 
   fetchScripts: async () => {
-    const { page, pageSize, search, directory, category } = get()
+    const { page, pageSize, search, directory, category, selectedTagIds } = get()
     set({ loading: true })
     try {
-      const { data } = await getScripts({ page, page_size: pageSize, search, directory, category })
+      const { data } = await getScripts({
+        page,
+        page_size: pageSize,
+        search,
+        directory,
+        category,
+        tag_ids: selectedTagIds.length ? selectedTagIds.join(',') : undefined,
+      })
       set({ scripts: data.items, total: data.total })
     } finally {
       set({ loading: false })
@@ -74,6 +87,11 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
     const { data } = await scanScripts()
     await get().fetchScripts()
     return data
+  },
+
+  doUpload: async (file, subdir) => {
+    await uploadScript(file, subdir)
+    await get().fetchScripts()
   },
 
   parseParams: async (id) => {

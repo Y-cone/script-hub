@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Tag, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, Form, InputNumber } from 'antd'
+import { Card, Descriptions, Tag, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript } from '../services/api'
+import { runScript, killRun, updateScript, getTags, setScriptTags } from '../services/api'
+import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import '../styles/danger.css'
@@ -68,6 +69,9 @@ export default function ScriptDetail() {
   const [currentRunId, setCurrentRunId] = useState<number | null>(null)
   // 每个参数的实际运行值（区别于默认值）
   const [paramValues, setParamValues] = useState<Record<string, string>>({})
+  // 标签
+  const [allTags, setAllTags] = useState<TagItem[]>([])
+  const [scriptTagIds, setScriptTagIds] = useState<number[]>([])
 
   useEffect(() => {
     if (id) {
@@ -75,6 +79,10 @@ export default function ScriptDetail() {
       fetchContent(Number(id))
     }
   }, [id, fetchScript, fetchContent])
+
+  useEffect(() => {
+    getTags().then((res) => setAllTags(res.data.items)).catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (currentScript) {
@@ -93,8 +101,17 @@ export default function ScriptDetail() {
       setWorkingDir(currentScript.working_dir || '')
       setEnvVars(currentScript.env_vars || '')
       setTimeout(currentScript.timeout || 0)
+      // 初始化标签（名称 → id）
+      if (currentScript.tags?.length && allTags.length) {
+        const idList = currentScript.tags
+          .map((name) => allTags.find((t) => t.name === name)?.id)
+          .filter((x): x is number => x != null)
+        setScriptTagIds(idList)
+      } else {
+        setScriptTagIds([])
+      }
     }
-  }, [currentScript])
+  }, [currentScript, allTags])
 
   const handleParse = async () => {
     if (!id) return
@@ -358,6 +375,32 @@ export default function ScriptDetail() {
               }}
               checkedChildren="是"
               unCheckedChildren="否"
+            />
+          </Descriptions.Item>
+          <Descriptions.Item label="标签">
+            <Select
+              mode="multiple"
+              style={{ minWidth: 200 }}
+              placeholder="选择标签"
+              value={scriptTagIds}
+              options={allTags.map((t) => ({ label: t.name, value: t.id }))}
+              onChange={async (vals: number[]) => {
+                setScriptTagIds(vals)
+                try {
+                  await setScriptTags(currentScript.id, vals)
+                  useScriptStore.setState({
+                    currentScript: {
+                      ...currentScript,
+                      tags: allTags.filter((t) => vals.includes(t.id)).map((t) => t.name),
+                    },
+                  })
+                  message.success('标签已更新')
+                } catch {
+                  message.error('标签更新失败')
+                }
+              }}
+              maxTagCount="responsive"
+              allowClear
             />
           </Descriptions.Item>
         </Descriptions>

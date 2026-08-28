@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .database import init_db
 from .routers.script import router as script_router
+from .routers.tags import router as tags_router
 from .routers.run import router as run_router
 import logging
 
@@ -37,6 +38,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 app.include_router(script_router)
+app.include_router(tags_router)
 app.include_router(run_router)
 
 

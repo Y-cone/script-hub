@@ -16,6 +16,8 @@ class ScriptOut(BaseModel):
     env_vars: Optional[str]
     dangerous: bool
     timeout: int
+    source: str
+    tags: list[str] = []
     created_at: datetime
     updated_at: datetime
 
@@ -43,3 +45,7 @@ class ScanResult(BaseModel):
     updated: int
     removed: int
     total: int
+
+
+class TagsUpdate(BaseModel):
+    tag_ids: list[int] = []
