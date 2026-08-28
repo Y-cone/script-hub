@@ -5,12 +5,14 @@ from ..database import get_db
 from ..models.script import Script
 from ..models.tag import ScriptTag
 from ..config import get_script_root
-from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate
+from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
 from ..schemas.tag import UploadResult
 from ..services.scanner import scan_scripts, SUPPORTED_EXTENSIONS
 from ..services.parser import parse_script
 from pathlib import Path
+from datetime import datetime
 import json
+import shutil
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
@@ -126,6 +128,45 @@ async def update_script(script_id: int, data: ScriptUpdate, db: AsyncSession = D
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(script, field, value)
 
+    await db.commit()
+    await db.refresh(script)
+    tag_map = await _load_tags(db, [script.id])
+    return _dict_with_tags(script, tag_map.get(script.id, []))
+
+
+@router.post("/{script_id}/move", response_model=ScriptOut)
+async def move_script(script_id: int, data: MoveRequest, db: AsyncSession = Depends(get_db)):
+    """将脚本移动到脚本根目录下的另一子目录"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+
+    root = get_script_root()
+    # 目标目录：相对脚本根目录的子目录（可为空=根目录）
+    target = (root / data.directory.strip()).resolve()
+    if not target.is_relative_to(root.resolve()):
+        raise HTTPException(400, "非法目录路径")
+    target.mkdir(parents=True, exist_ok=True)
+
+    src = Path(script.path)
+    if not src.exists():
+        raise HTTPException(404, "源文件不存在")
+
+    # 目标文件（防重名：存在则加 (1) 后缀）
+    dest = target / src.name
+    if dest.exists():
+        stem, suffix = src.stem, src.suffix
+        i = 1
+        while (target / f"{stem}({i}){suffix}").exists():
+            i += 1
+        dest = target / f"{stem}({i}){suffix}"
+
+    shutil.move(str(src), str(dest))
+
+    script.path = str(dest)
+    script.relative_path = str(dest.relative_to(root))
+    script.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(script)
     tag_map = await _load_tags(db, [script.id])

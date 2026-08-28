@@ -32,7 +32,11 @@ class ScriptUpdate(BaseModel):
     env_vars: Optional[str] = None
     dangerous: Optional[bool] = None
     timeout: Optional[int] = None
-    category: Optional[str] = None
+
+
+class MoveRequest(BaseModel):
+    """移动到目标子目录（相对脚本根目录）"""
+    directory: str
 
 
 class ScriptListOut(BaseModel):

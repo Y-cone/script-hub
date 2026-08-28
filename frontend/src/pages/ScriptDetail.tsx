@@ -1,15 +1,22 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber } from 'antd'
+import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber, Tag } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, getTags, setScriptTags } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags } from '../services/api'
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
 import '../styles/danger.css'
+
+const CATEGORY_COLORS: Record<string, string> = {
+  python: 'blue',
+  shell: 'green',
+  bat: 'orange',
+  powershell: 'purple',
+}
 
 const TYPE_LABELS: Record<string, string> = {
   string: 'string',
@@ -349,30 +356,30 @@ export default function ScriptDetail() {
         <Descriptions column={2} size="small">
           <Descriptions.Item label="路径">{currentScript.path}</Descriptions.Item>
           <Descriptions.Item label="类型">
-            <Select
+            <Tag color={CATEGORY_COLORS[currentScript.category]}>{currentScript.category}</Tag>
+          </Descriptions.Item>
+          <Descriptions.Item label="所在目录">
+            <Input
               size="small"
-              value={currentScript.category}
-              onChange={async (cat: string) => {
+              placeholder="相对脚本根目录的子目录，如 network"
+              defaultValue={currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/')}
+              onPressEnter={async (e) => {
+                const dir = (e.target as HTMLInputElement).value.trim()
                 try {
-                  await updateScript(currentScript.id, { category: cat })
-                  useScriptStore.setState({
-                    currentScript: { ...currentScript, category: cat }
-                  })
-                  message.success('分类已更新')
-                } catch {
-                  message.error('修改失败')
+                  const { data } = await moveScript(currentScript.id, dir)
+                  useScriptStore.setState({ currentScript: data })
+                  message.success('已移动到目录 ' + (dir || '(根目录)'))
+                } catch (err: any) {
+                  message.error(err?.response?.data?.detail || '移动失败')
                 }
               }}
-              style={{ width: 130 }}
-              options={[
-                { label: 'Python', value: 'python' },
-                { label: 'Shell', value: 'shell' },
-                { label: 'Batch', value: 'bat' },
-                { label: 'PowerShell', value: 'powershell' },
-              ]}
+              style={{ width: 200 }}
+              suffix={(() => {
+                const dir = currentScript.relative_path.split(/[/\\]/).slice(0, -1).join('/')
+                return dir ? <span style={{ color: '#999', fontSize: 12 }}>当前: {dir || '/'}</span> : null
+              })()}
             />
           </Descriptions.Item>
-          <Descriptions.Item label="相对路径">{currentScript.relative_path}</Descriptions.Item>
           <Descriptions.Item label="危险脚本">
             <Switch
               className="danger-switch"

@@ -49,6 +49,9 @@ export const getScript = (id: number) => api.get<ScriptItem>(`/api/scripts/${id}
 export const updateScript = (id: number, data: Partial<ScriptItem>) =>
   api.put<ScriptItem>(`/api/scripts/${id}`, data)
 
+export const moveScript = (id: number, directory: string) =>
+  api.post<ScriptItem>(`/api/scripts/${id}/move`, { directory })
+
 export const scanScripts = () => api.post<ScanResult>('/api/scripts/scan')
 
 export const uploadScript = (file: File, subdir = '') => {

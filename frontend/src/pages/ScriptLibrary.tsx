@@ -87,7 +87,11 @@ export default function ScriptLibrary() {
       render: (tags: string[]) =>
         tags && tags.length ? (
           <Space size={4} wrap>
-            {tags.map((t) => <Tag key={t} color="blue">{t}</Tag>)}
+            {tags.map((t) => (
+              <Tag key={t} style={{ borderStyle: 'dashed', borderColor: '#1677ff', color: '#1677ff', background: '#f0f7ff' }}>
+                {t}
+              </Tag>
+            ))}
           </Space>
         ) : <span style={{ color: '#bbb' }}>-</span>,
     },
