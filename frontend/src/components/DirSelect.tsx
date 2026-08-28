@@ -32,7 +32,7 @@ export default function DirSelect({
   }
 
   return (
-    <Space.Compact style={{ width: '100%' }}>
+    <Space.Compact style={{ width: 260 }}>
       <Select
         size="small"
         showSearch

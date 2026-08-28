@@ -1,8 +1,9 @@
 from pathlib import Path
 from datetime import datetime
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.script import Script
+from ..models.run_history import RunHistory
 from ..config import get_script_root
 
 EXTENSION_MAP = {
@@ -42,12 +43,17 @@ async def scan_scripts(db: AsyncSession) -> dict:
 
         if abs_path in existing:
             script = existing[abs_path]
-            script.name = filepath.name
-            script.relative_path = rel_path
-            script.extension = ext
-            script.category = category
-            script.updated_at = now
-            updated += 1
+            # 仅当磁盘文件 mtime 比库记录更新时才视为"更新"（内容可能已变）
+            # 统一为 naive UTC dataetime 比较，避免 naive datetime .timestamp() 的本地时区陷阱
+            file_mtime_utc = datetime.utcfromtimestamp(filepath.stat().st_mtime)
+            store_mtime = script.updated_at or datetime.fromtimestamp(0)
+            if file_mtime_utc > store_mtime:
+                script.name = filepath.name
+                script.relative_path = rel_path
+                script.extension = ext
+                script.category = category
+                script.updated_at = now
+                updated += 1
         else:
             script = Script(
                 name=filepath.name,
@@ -64,6 +70,8 @@ async def scan_scripts(db: AsyncSession) -> dict:
     # Remove scripts whose files no longer exist
     for abs_path, script in existing.items():
         if abs_path not in disk_files:
+            # 先删关联运行历史，避免外键约束失败
+            await db.execute(delete(RunHistory).where(RunHistory.script_id == script.id))
             await db.delete(script)
             removed += 1
 
