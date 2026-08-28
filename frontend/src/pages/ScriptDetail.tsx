@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Tag, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber } from 'antd'
+import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
@@ -8,14 +8,8 @@ import { runScript, killRun, updateScript, getTags, setScriptTags } from '../ser
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
+import TagPicker from '../components/TagPicker'
 import '../styles/danger.css'
-
-const CATEGORY_COLORS: Record<string, string> = {
-  python: 'blue',
-  shell: 'green',
-  bat: 'orange',
-  powershell: 'purple',
-}
 
 const TYPE_LABELS: Record<string, string> = {
   string: 'string',
@@ -342,7 +336,7 @@ export default function ScriptDetail() {
   ]
 
   return (
-    <div>
+    <div style={{ flex: 1, overflow: 'auto' }}>
       <Button
         icon={<ArrowLeftOutlined />}
         onClick={() => navigate('/')}
@@ -355,7 +349,28 @@ export default function ScriptDetail() {
         <Descriptions column={2} size="small">
           <Descriptions.Item label="路径">{currentScript.path}</Descriptions.Item>
           <Descriptions.Item label="类型">
-            <Tag color={CATEGORY_COLORS[currentScript.category]}>{currentScript.category}</Tag>
+            <Select
+              size="small"
+              value={currentScript.category}
+              onChange={async (cat: string) => {
+                try {
+                  await updateScript(currentScript.id, { category: cat })
+                  useScriptStore.setState({
+                    currentScript: { ...currentScript, category: cat }
+                  })
+                  message.success('分类已更新')
+                } catch {
+                  message.error('修改失败')
+                }
+              }}
+              style={{ width: 130 }}
+              options={[
+                { label: 'Python', value: 'python' },
+                { label: 'Shell', value: 'shell' },
+                { label: 'Batch', value: 'bat' },
+                { label: 'PowerShell', value: 'powershell' },
+              ]}
+            />
           </Descriptions.Item>
           <Descriptions.Item label="相对路径">{currentScript.relative_path}</Descriptions.Item>
           <Descriptions.Item label="危险脚本">
@@ -377,30 +392,22 @@ export default function ScriptDetail() {
               unCheckedChildren="否"
             />
           </Descriptions.Item>
-          <Descriptions.Item label="标签">
-            <Select
-              mode="multiple"
-              style={{ minWidth: 200 }}
-              placeholder="选择标签"
+          <Descriptions.Item label="标签" span={2}>
+            <TagPicker
               value={scriptTagIds}
-              options={allTags.map((t) => ({ label: t.name, value: t.id }))}
-              onChange={async (vals: number[]) => {
+              onChange={async (vals) => {
                 setScriptTagIds(vals)
                 try {
                   await setScriptTags(currentScript.id, vals)
+                  const { data } = await getTags()
+                  const names = data.items.filter((t) => vals.includes(t.id)).map((t) => t.name)
                   useScriptStore.setState({
-                    currentScript: {
-                      ...currentScript,
-                      tags: allTags.filter((t) => vals.includes(t.id)).map((t) => t.name),
-                    },
+                    currentScript: { ...currentScript, tags: names },
                   })
-                  message.success('标签已更新')
                 } catch {
                   message.error('标签更新失败')
                 }
               }}
-              maxTagCount="responsive"
-              allowClear
             />
           </Descriptions.Item>
         </Descriptions>

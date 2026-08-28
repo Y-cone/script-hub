@@ -25,12 +25,14 @@ class ScriptOut(BaseModel):
 
 
 class ScriptUpdate(BaseModel):
+    name: Optional[str] = None
     description: Optional[str] = None
     parameters: Optional[str] = None
     working_dir: Optional[str] = None
     env_vars: Optional[str] = None
     dangerous: Optional[bool] = None
     timeout: Optional[int] = None
+    category: Optional[str] = None
 
 
 class ScriptListOut(BaseModel):

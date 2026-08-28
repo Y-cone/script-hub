@@ -3,8 +3,8 @@ import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, 
 import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
-import { getTags } from '../services/api'
-import type { ScriptItem, TagItem } from '../services/api'
+import type { ScriptItem } from '../services/api'
+import TagPicker from '../components/TagPicker'
 import type { DataNode } from 'antd/es/tree'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -56,16 +56,11 @@ export default function ScriptLibrary() {
     setSearch, setCategory, setSelectedTagIds, fetchScripts, doScan, doUpload, setDirectory,
   } = useScriptStore()
 
-  const [tags, setTags] = useState<TagItem[]>([])
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds])
-  useEffect(() => {
-    getTags().then((res) => setTags(res.data.items))
-  }, [])
 
-  const tagOptions = tags.map((t) => ({ label: t.name, value: t.id }))
   const treeData = useMemo(() => buildTree(scripts), [scripts])
 
   const columns = [
@@ -107,7 +102,6 @@ export default function ScriptLibrary() {
   const handleScan = async () => {
     const result = await doScan()
     message.success(`扫描完成：新增 ${result.added}，更新 ${result.updated}，删除 ${result.removed}`)
-    getTags().then((res) => setTags(res.data.items))
   }
 
   const handleTreeSelect = (keys: React.Key[]) => {
@@ -167,18 +161,13 @@ export default function ScriptLibrary() {
             options={CATEGORY_OPTIONS}
             style={{ width: 120 }}
           />
-          <Select
-            mode="multiple"
-            placeholder="按标签筛选 (AND)"
+          <TagPicker
             value={selectedTagIds}
+            placeholder="按标签筛选 (AND)"
             onChange={(vals) => {
               setSelectedTagIds(vals)
               useScriptStore.setState({ page: 1 })
             }}
-            options={tagOptions}
-            maxTagCount="responsive"
-            style={{ minWidth: 180 }}
-            allowClear
           />
           <Button icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
             上传脚本
