@@ -136,6 +136,7 @@ export default function ScriptLibrary() {
     <div style={{ display: 'flex', gap: 16, flex: 1, overflow: 'hidden' }}>
       <Card
         size="small"
+        title="脚本目录"
         style={{ width: 220, flexShrink: 0, overflow: 'auto' }}
         styles={{ body: { padding: '12px 0' } }}
       >
@@ -153,7 +154,7 @@ export default function ScriptLibrary() {
             prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 220 }}
+            style={{ width: 240 }}
             allowClear
           />
           <Select
@@ -174,10 +175,10 @@ export default function ScriptLibrary() {
             }}
           />
           <Button icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
-            上传脚本
+            上传
           </Button>
           <Button icon={<ScanOutlined />} onClick={handleScan} type="primary">
-            扫描目录
+            扫描
           </Button>
         </Space>
         <Table
@@ -194,7 +195,7 @@ export default function ScriptLibrary() {
             onChange: (p) => useScriptStore.setState({ page: p }),
           }}
           size="small"
-          scroll={{ x: 'max-content' }}
+          scroll={{ x: 'max-content', y: 'calc(100vh - 300px)' }}
         />
       </div>
 
