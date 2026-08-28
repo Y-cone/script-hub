@@ -26,3 +26,4 @@ data/*.db
 .DS_Store
 Thumbs.db
 data/runs/
+data/scripts/
