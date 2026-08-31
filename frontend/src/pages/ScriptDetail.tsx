@@ -136,6 +136,13 @@ export default function ScriptDetail() {
           useScriptStore.getState().fetchContent(Number(id)).then(() => {
             useScriptStore.getState().fetchScript(Number(id))
           })
+          // 内容已变，自动重新解析参数
+          try {
+            const parsed = await useScriptStore.getState().parseParams(Number(id))
+            setParams(parsed)
+          } catch {
+            // 解析失败不阻断保存，保留旧参数
+          }
           setEditMode(false)
           message.success('已保存并重新扫描')
         } catch (e: any) {
