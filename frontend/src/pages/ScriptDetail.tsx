@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber, Tag } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent } from '../services/api'
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
@@ -74,6 +74,10 @@ export default function ScriptDetail() {
   // 标签
   const [allTags, setAllTags] = useState<TagItem[]>([])
   const [scriptTagIds, setScriptTagIds] = useState<number[]>([])
+  // 在线编辑
+  const [editMode, setEditMode] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -114,6 +118,34 @@ export default function ScriptDetail() {
       }
     }
   }, [currentScript, allTags])
+
+  // 保存脚本内容（二次确认后）
+  const handleSaveContent = useCallback(async () => {
+    if (!id) return
+    Modal.confirm({
+      title: '保存脚本内容',
+      content: '保存后将覆盖磁盘文件并重新扫描，确认？',
+      okText: '保存',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        setSaving(true)
+        try {
+          await saveScriptContent(Number(id), editContent)
+          // 重新拉取内容（含重扫后的最新状态）
+          useScriptStore.getState().fetchContent(Number(id)).then(() => {
+            useScriptStore.getState().fetchScript(Number(id))
+          })
+          setEditMode(false)
+          message.success('已保存并重新扫描')
+        } catch (e: any) {
+          message.error(e?.response?.data?.detail || '保存失败')
+        } finally {
+          setSaving(false)
+        }
+      },
+    })
+  }, [id, editContent])
 
   const handleParse = async () => {
     if (!id) return
@@ -413,9 +445,56 @@ export default function ScriptDetail() {
         </Descriptions>
       </Card>
 
-      <Card title="脚本内容" style={{ marginBottom: 16 }}>
+      <Card
+        title="脚本内容"
+        style={{ marginBottom: 16 }}
+        extra={
+          <Space>
+            {editMode ? (
+              <>
+                <Button size="small" onClick={() => { setEditContent(scriptContent ?? ''); setEditMode(false) }}>
+                  取消
+                </Button>
+                <Button
+                  size="small"
+                  type="primary"
+                  loading={saving}
+                  onClick={handleSaveContent}
+                >
+                  保存
+                </Button>
+              </>
+            ) : (
+              <Button size="small" icon={<EditOutlined />} onClick={() => { setEditContent(scriptContent ?? ''); setEditMode(true) }}>
+                编辑
+              </Button>
+            )}
+          </Space>
+        }
+      >
         {scriptContent !== null && scriptLanguage ? (
-          <CodeViewer code={scriptContent} language={scriptLanguage} />
+          editMode ? (
+            <textarea
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              spellCheck={false}
+              style={{
+                width: '100%',
+                height: 420,
+                background: '#1e1e1e',
+                color: '#d4d4d4',
+                border: '1px solid #333',
+                borderRadius: 8,
+                padding: 16,
+                fontFamily: 'Consolas, "Courier New", monospace',
+                fontSize: 13,
+                lineHeight: 1.5,
+                resize: 'vertical',
+              }}
+            />
+          ) : (
+            <CodeViewer code={scriptContent} language={scriptLanguage} />
+          )
         ) : (
           <Spin />
         )}

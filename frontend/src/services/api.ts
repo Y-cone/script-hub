@@ -96,6 +96,9 @@ export const setScriptTags = (id: number, tagIds: number[]) =>
 export const getScriptContent = (id: number) =>
   api.get<{ content: string; language: string }>(`/api/scripts/${id}/content`)
 
+export const saveScriptContent = (id: number, content: string) =>
+  api.put<{ message: string; language: string }>(`/api/scripts/${id}/content`, { content })
+
 export interface ParamDef {
   name: string
   type: string

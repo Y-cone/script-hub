@@ -310,6 +310,30 @@ async def get_script_content(script_id: int, db: AsyncSession = Depends(get_db))
     return {"content": content, "language": script.category}
 
 
+@router.put("/{script_id}/content")
+async def save_script_content(
+    script_id: int,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+):
+    """保存脚本内容：写入磁盘文件 + 触发重扫更新 DB 元数据"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+
+    content = payload.get("content", "")
+    p = Path(script.path)
+    try:
+        p.write_text(content, encoding="utf-8")
+    except OSError as e:
+        raise HTTPException(500, f"写入文件失败: {e}")
+
+    # 重扫更新 DB 中的元数据（名称/路径/更新时间等）
+    await scan_scripts(db)
+    return {"message": "已保存", "language": script.category}
+
+
 @router.post("/{script_id}/parse")
 async def parse_script_params(script_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Script).where(Script.id == script_id))
