@@ -5,6 +5,7 @@ import AppLayout from './components/AppLayout'
 import ScriptLibrary from './pages/ScriptLibrary'
 import ScriptDetail from './pages/ScriptDetail'
 import RunHistory from './pages/RunHistory'
+import SystemInfo from './pages/SystemInfo'
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
             <Route path="/" element={<ScriptLibrary />} />
             <Route path="/scripts/:id" element={<ScriptDetail />} />
             <Route path="/history" element={<RunHistory />} />
+            <Route path="/system" element={<SystemInfo />} />
           </Route>
         </Routes>
       </BrowserRouter>

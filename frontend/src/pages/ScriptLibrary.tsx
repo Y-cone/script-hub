@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal, Popconfirm } from 'antd'
+import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal, Popconfirm, Tooltip } from 'antd'
 import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
@@ -72,6 +72,22 @@ export default function ScriptLibrary() {
       render: (name: string, record: ScriptItem) => (
         <a onClick={() => navigate(`/scripts/${record.id}`)} style={{ fontWeight: 500 }}>{name}</a>
       ),
+    },
+    {
+      title: '可用',
+      dataIndex: 'available',
+      key: 'available',
+      width: 70,
+      render: (available: boolean | null, record: ScriptItem) => {
+        if (available == null) return <Tag color="default">未知</Tag>
+        return available
+          ? <Tooltip title="环境检测通过"><Tag color="success">可用</Tag></Tooltip>
+          : (
+            <Tooltip title="环境检测未通过，点击进入详情查看">
+              <a onClick={() => navigate(`/scripts/${record.id}`)}><Tag color="error">不可用</Tag></a>
+            </Tooltip>
+          )
+      },
     },
     {
       title: '类型',

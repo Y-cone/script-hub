@@ -20,5 +20,6 @@ class Script(Base):
     dangerous: Mapped[bool] = mapped_column(Boolean, default=False)
     timeout: Mapped[int] = mapped_column(Integer, default=0)
     source: Mapped[str] = mapped_column(String(20), default="scan")  # scan | upload
+    env_requests: Mapped[str] = mapped_column(Text, nullable=True)  # JSON，如 {"python": ">=3.8"}
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -6,6 +6,7 @@ from ..models.script import Script
 from ..models.run_history import RunHistory
 from ..schemas.run import RunRequest, RunResponse, RunHistoryOut, RunHistoryListOut
 from ..services.executor import executor
+from ..services.envcheck import check_environment
 import json
 import asyncio
 from datetime import datetime
@@ -29,6 +30,18 @@ async def run_script(
     
     if script.dangerous and not request.confirm_dangerous:
         raise HTTPException(400, "高危脚本需要确认执行")
+
+    # 环境检测前置：不达标时必须 confirm_env=True 才放行
+    env_checks = check_environment(script)
+    env_checks_ok = all(c["ok"] for c in env_checks)
+    if not env_checks_ok and not request.confirm_env:
+        raise HTTPException(
+            409,
+            detail={
+                "message": "环境检测未达标，请确认后重试（confirm_env=true）",
+                "checks": env_checks,
+            },
+        )
     
     # 先创建 run_history 记录
     command = executor._build_command(script, request.parameters or {})

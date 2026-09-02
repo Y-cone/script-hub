@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber, Tag } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript } from '../services/api'
 import type { TagItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
@@ -65,6 +65,7 @@ export default function ScriptDetail() {
   const [workingDir, setWorkingDir] = useState('')
   const [envVars, setEnvVars] = useState('')
   const [timeout, setTimeout] = useState(0)
+  const [envRequests, setEnvRequests] = useState('')
   const [isRunning, setIsRunning] = useState(false)
   const [runOutput, setRunOutput] = useState('')
   const [runStatus, setRunStatus] = useState('')
@@ -107,6 +108,7 @@ export default function ScriptDetail() {
       setWorkingDir(currentScript.working_dir || '')
       setEnvVars(currentScript.env_vars || '')
       setTimeout(currentScript.timeout || 0)
+      setEnvRequests(currentScript.env_requests || '')
       // 初始化标签（名称 → id）
       if (currentScript.tags?.length && allTags.length) {
         const idList = currentScript.tags
@@ -208,11 +210,40 @@ export default function ScriptDetail() {
   // 保存运行配置到数据库
   const saveRunConfig = async () => {
     if (!id) return
+    // 前端校验：env_requests / env_vars 必须是合法 JSON 对象
+    for (const [, val, label] of [
+      ['env_requests', envRequests, '环境要求'],
+      ['env_vars', envVars, '环境变量'],
+    ]) {
+      if (val.trim()) {
+        try {
+          const parsed = JSON.parse(val)
+          if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+            message.error(`${label}必须是 JSON 对象，如 {"python": ">=3.8"}`)
+            return
+          }
+          for (const [k, v] of Object.entries(parsed)) {
+            if (typeof v !== 'string') {
+              message.error(`${label}的值必须是字符串，键"${k}" 的值为 ${typeof v}`)
+              return
+            }
+          }
+        } catch {
+          message.error(`${label}不是合法 JSON`)
+          return
+        }
+      }
+    }
     try {
-      await updateScript(Number(id), { working_dir: workingDir || null, env_vars: envVars || null, timeout })
+      await updateScript(Number(id), {
+        working_dir: workingDir || null,
+        env_vars: envVars || null,
+        timeout,
+        env_requests: envRequests || null,
+      })
       message.success('配置已保存')
-    } catch {
-      message.error('保存失败')
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '保存失败')
     }
   }
 
@@ -244,8 +275,8 @@ export default function ScriptDetail() {
     await executeScript()
   }
 
-  // 实际执行脚本的函数
-  const executeScript = async () => {
+  // 实际执行脚本的函数（withEnvConfirm 出现环境告警重试时传 true）
+  const executeScript = async (confirmEnv = false) => {
     if (!id || !currentScript) return
     
     try {
@@ -283,7 +314,8 @@ export default function ScriptDetail() {
         working_dir: workingDir || undefined,
         env_vars: envVarsObj,
         timeout: timeout || undefined,
-        confirm_dangerous: true
+        confirm_dangerous: true,
+        confirm_env: confirmEnv
       })
       
       setCurrentRunId(result.data.id)
@@ -292,8 +324,34 @@ export default function ScriptDetail() {
       // 连接WebSocket获取实时输出
       connectWebSocket(result.data.id)
       
-    } catch (error) {
-      message.error('执行脚本失败')
+    } catch (error: any) {
+      // 环境检测未达标：弹出确认，用户确认后带 confirm_env 重试
+      const status = error?.response?.status
+      const detail = error?.response?.data?.detail
+      if (status === 409 && detail?.checks) {
+        setIsRunning(false)
+        setRunStatus('')
+        const checks = detail.checks as Array<{ name: string; required: string; actual: string | null; detail: string }>
+        Modal.confirm({
+          title: '⚠️ 环境检测未达标',
+          content: (
+            <div>
+              {checks.map((c, i) => (
+                <p key={i} style={{ margin: '4px 0' }}>
+                  <strong>{c.name}</strong>: {c.detail}
+                </p>
+              ))}
+              <p style={{ color: '#888', marginTop: 8 }}>确认继续执行吗？</p>
+            </div>
+          ),
+          okText: '确认执行',
+          cancelText: '取消',
+          okButtonProps: { danger: true },
+          onOk: () => executeScript(true),
+        })
+        return
+      }
+      message.error(error?.response?.data?.detail?.message || '执行脚本失败')
       setIsRunning(false)
       setRunStatus('failed')
     }
@@ -352,6 +410,43 @@ export default function ScriptDetail() {
   // 清空输出
   const handleClearOutput = () => {
     setRunOutput('')
+  }
+
+  // 手动环境检测
+  const handleEnvCheck = async () => {
+    if (!id) return
+    try {
+      const { data } = await envCheckScript(Number(id))
+      Modal.info({
+        title: '环境检测结果',
+        width: 600,
+        content: (
+          <div>
+            {data.checks.length === 0 && <p style={{ color: '#888' }}>无环境要求</p>}
+            {data.checks.map((c, i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 8,
+                  padding: '6px 0',
+                  borderBottom: i < data.checks.length - 1 ? '1px solid #f0f0f0' : 'none',
+                }}
+              >
+                <Tag color={c.ok ? 'success' : 'error'}>{c.ok ? '通过' : '未通过'}</Tag>
+                <div>
+                  <div><strong>{c.name}</strong></div>
+                  <div style={{ color: '#666', fontSize: 12 }}>{c.detail}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ),
+      })
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '环境检测失败')
+    }
   }
 
   const commandPreview = currentScript
@@ -580,6 +675,15 @@ export default function ScriptDetail() {
             />
           </div>
           <div>
+            <label>环境要求（JSON格式，写法见占位符）</label>
+            <Input.TextArea
+              placeholder='{"python": ">=3.8", "node": ">=18"}'
+              value={envRequests}
+              onChange={(e) => setEnvRequests(e.target.value)}
+              rows={3}
+            />
+          </div>
+          <div>
             <label>超时时间（秒，0表示不限）</label>
             <InputNumber
               min={0}
@@ -609,6 +713,7 @@ export default function ScriptDetail() {
                 </Button>
               )}
               <Button onClick={saveRunConfig}>保存配置</Button>
+              <Button icon={<CheckCircleOutlined />} onClick={handleEnvCheck}>环境检测</Button>
             </Space>
           </div>
         </div>

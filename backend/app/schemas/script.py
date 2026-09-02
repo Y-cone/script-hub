@@ -17,6 +17,8 @@ class ScriptOut(BaseModel):
     dangerous: bool
     timeout: int
     source: str
+    env_requests: Optional[str] = None
+    available: Optional[bool] = None
     tags: list[str] = []
     created_at: datetime
     updated_at: datetime
@@ -32,6 +34,7 @@ class ScriptUpdate(BaseModel):
     env_vars: Optional[str] = None
     dangerous: Optional[bool] = None
     timeout: Optional[int] = None
+    env_requests: Optional[str] = None
 
 
 class MoveRequest(BaseModel):

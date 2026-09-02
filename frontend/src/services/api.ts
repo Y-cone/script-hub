@@ -17,6 +17,8 @@ export interface ScriptItem {
   timeout: number
   source: string
   tags: string[]
+  env_requests?: string | null
+  available?: boolean | null
   created_at: string
   updated_at: string
 }
@@ -99,6 +101,24 @@ export const getScriptContent = (id: number) =>
 export const saveScriptContent = (id: number, content: string) =>
   api.put<{ message: string; language: string }>(`/api/scripts/${id}/content`, { content })
 
+// 环境检测
+export interface EnvCheckItem {
+  type: string
+  name: string
+  required: string
+  actual: string | null
+  ok: boolean
+  detail: string
+}
+export interface EnvCheckResult {
+  script_id: number
+  checks: EnvCheckItem[]
+  unmet: EnvCheckItem[]
+  all_ok: boolean
+}
+export const envCheckScript = (id: number) =>
+  api.get<EnvCheckResult>(`/api/scripts/${id}/env-check`)
+
 export interface ParamDef {
   name: string
   type: string
@@ -119,6 +139,7 @@ export interface RunRequest {
   env_vars?: Record<string, string>
   timeout?: number
   confirm_dangerous?: boolean
+  confirm_env?: boolean
 }
 
 export interface RunResponse {
@@ -163,3 +184,20 @@ export const getRunDetail = (id: number) =>
 
 export const killRun = (id: number) =>
   api.post(`/api/run/${id}/kill`)
+
+// 系统信息
+export interface RuntimeItem {
+  name: string
+  installed: boolean
+  version: string | null
+}
+export interface SystemInfo {
+  hostname: string
+  os: string
+  os_version: string
+  arch: string
+  platform: string
+  ip: string
+  runtimes: RuntimeItem[]
+}
+export const getSystemInfo = () => api.get<SystemInfo>('/api/system/info')

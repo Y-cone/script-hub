@@ -9,6 +9,7 @@ from ..config import get_script_root
 from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
 from ..schemas.tag import UploadResult
 from ..services.scanner import scan_scripts, SUPPORTED_EXTENSIONS
+from ..services.envcheck import check_environment
 from ..services.parser import parse_script
 from pathlib import Path
 from datetime import datetime
@@ -20,6 +21,12 @@ router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
 def _dict_with_tags(script: Script, tag_names: list[str]) -> dict:
     """将 Script ORM 转 dict，附加标签名列表（供 ScriptOut 序列化）"""
+    # 可用性：环境检测是否全达标（平台兼容 + 已配置的运行时要求）
+    try:
+        checks = check_environment(script)
+        available = all(c["ok"] for c in checks)
+    except Exception:
+        available = None
     d = {
         "id": script.id,
         "name": script.name,
@@ -34,6 +41,8 @@ def _dict_with_tags(script: Script, tag_names: list[str]) -> dict:
         "dangerous": script.dangerous,
         "timeout": script.timeout,
         "source": script.source,
+        "env_requests": script.env_requests,
+        "available": available,
         "created_at": script.created_at,
         "updated_at": script.updated_at,
         "tags": tag_names,
@@ -140,7 +149,19 @@ async def update_script(script_id: int, data: ScriptUpdate, db: AsyncSession = D
     if not script:
         raise HTTPException(404, "Script not found")
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    data_dict = data.model_dump(exclude_unset=True)
+
+    # 校验 env_requests 必须是合法 JSON 对象（dict of str）
+    if "env_requests" in data_dict and data_dict.get("env_requests"):
+        raw = data_dict["env_requests"]
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+        except json.JSONDecodeError:
+            raise HTTPException(400, "环境要求不是合法 JSON")
+        if not isinstance(parsed, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in parsed.items()):
+            raise HTTPException(400, "环境要求必须是 JSON 对象，如 {\"python\": \">=3.8\"}")
+
+    for field, value in data_dict.items():
         setattr(script, field, value)
 
     await db.commit()
@@ -332,6 +353,23 @@ async def save_script_content(
     # 重扫更新 DB 中的元数据（名称/路径/更新时间等）
     await scan_scripts(db)
     return {"message": "已保存", "language": script.category}
+
+
+@router.get("/{script_id}/env-check")
+async def env_check(script_id: int, db: AsyncSession = Depends(get_db)):
+    """手动触发某脚本的环境检测（平台兼容 + 运行时版本）"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+    from ..services.envcheck import check_environment
+    checks = check_environment(script)
+    return {
+        "script_id": script_id,
+        "checks": checks,
+        "unmet": [c for c in checks if not c["ok"]],
+        "all_ok": all(c["ok"] for c in checks),
+    }
 
 
 @router.post("/{script_id}/parse")

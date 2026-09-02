@@ -10,6 +10,7 @@ class RunRequest(BaseModel):
     env_vars: Optional[Dict[str, str]] = None
     timeout: Optional[int] = None
     confirm_dangerous: bool = False
+    confirm_env: bool = False
 
 
 class RunResponse(BaseModel):

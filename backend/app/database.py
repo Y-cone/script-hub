@@ -27,6 +27,7 @@ class Base(DeclarativeBase):
 # 轻量列迁移：为已存在的表补充新列（幂等）
 _COLUMN_MIGRATIONS = [
     ("scripts", "source", "VARCHAR(20) DEFAULT 'scan'"),
+    ("scripts", "env_requests", "TEXT"),
 ]
 
 # 需要重建表以更新外键/可空约束的表：{表名: 建表DDL}

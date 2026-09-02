@@ -1,5 +1,5 @@
 import { Layout, Menu, theme } from 'antd'
-import { FileOutlined, HistoryOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { FileOutlined, HistoryOutlined, ThunderboltOutlined, DesktopOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 
 const { Sider, Content, Header } = Layout
@@ -7,6 +7,7 @@ const { Sider, Content, Header } = Layout
 const menuItems = [
   { key: '/', icon: <FileOutlined />, label: '脚本库' },
   { key: '/history', icon: <HistoryOutlined />, label: '运行历史' },
+  { key: '/system', icon: <DesktopOutlined />, label: '本机信息' },
 ]
 
 export default function AppLayout() {
@@ -62,7 +63,7 @@ export default function AppLayout() {
           alignItems: 'center',
           flexShrink: 0,
         }}>
-          {location.pathname === '/' ? '脚本库' : location.pathname === '/history' ? '运行历史' : '脚本详情'}
+          {location.pathname === '/' ? '脚本库' : location.pathname === '/history' ? '运行历史' : location.pathname === '/system' ? '本机信息' : '脚本详情'}
         </Header>
         <Content style={{
           margin: 24,
