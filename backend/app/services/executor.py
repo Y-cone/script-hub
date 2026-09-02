@@ -174,14 +174,33 @@ class ScriptExecutor:
         # 最终写回（DB存储尾部1000行）
         lines = collected_output.split('\n')
         db_output = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
-        
+
+        finished_at = datetime.now()
+        duration = None
+        started = await self._get_field(run_history_id, "started_at")
+        if started:
+            duration = (finished_at - started).total_seconds()
+
         await self._update_db(
             run_history_id,
             output=db_output,
             exit_code=exit_code,
             status=status,
-            finished_at=datetime.now()
+            duration=duration,
+            finished_at=finished_at
         )
+
+    async def _get_field(self, run_history_id: int, field: str):
+        """读取运行记录的某字段"""
+        try:
+            async with async_session() as db:
+                result = await db.execute(select(RunHistory).where(RunHistory.id == run_history_id))
+                rh = result.scalar_one_or_none()
+                if rh:
+                    return getattr(rh, field)
+        except Exception as e:
+            logger.error(f"读取DB失败: {e}")
+        return None
     
     async def kill_process(self, run_id: int) -> bool:
         """终止运行中的进程"""
