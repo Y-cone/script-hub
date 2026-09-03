@@ -3,6 +3,7 @@ import { Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
+import { getDownloadUrl } from '../config'
 
 const STATUS_COLORS: Record<string, string> = {
   running: 'processing',
@@ -149,7 +150,7 @@ export default function RunHistory() {
             <Button
               size="small"
               icon={<DownloadOutlined />}
-              href={`/api/run/${record.id}/download`}
+              href={getDownloadUrl(`/api/run/${record.id}/download`)}
               target="_blank"
             >
               日志

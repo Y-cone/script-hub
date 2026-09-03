@@ -10,6 +10,7 @@ import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
 import DirSelect from '../components/DirSelect'
+import { getWsBase } from '../config'
 import '../styles/danger.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -359,7 +360,7 @@ export default function ScriptDetail() {
 
   // 连接WebSocket获取实时输出
   const connectWebSocket = (runId: number) => {
-    const ws = new WebSocket(`ws://${window.location.host}/api/run/ws/${runId}`)
+    const ws = new WebSocket(`${getWsBase()}/api/run/ws/${runId}`)
     let lastOutputLen = 0  // 追踪已显示的输出长度
     
     ws.onmessage = (event) => {

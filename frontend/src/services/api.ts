@@ -1,6 +1,7 @@
 import axios from 'axios'
+import { apiBase } from '../config'
 
-const api = axios.create()
+const api = axios.create({ baseURL: apiBase })
 
 export interface ScriptItem {
   id: number
@@ -89,9 +90,6 @@ export const updateTag = (id: number, data: { name?: string; color?: string }) =
 
 export const deleteTag = (id: number) => api.delete(`/api/tags/${id}`)
 
-export const getScriptTags = (id: number) =>
-  api.get<string[]>(`/api/scripts/${id}/tags`)
-
 export const setScriptTags = (id: number, tagIds: number[]) =>
   api.put(`/api/scripts/${id}/tags`, { tag_ids: tagIds })
 
@@ -178,9 +176,6 @@ export const getRunHistory = (params?: {
   page_size?: number
   script_id?: number
 }) => api.get<RunHistoryListResponse>('/api/run/history', { params })
-
-export const getRunDetail = (id: number) =>
-  api.get<RunHistoryItem>(`/api/run/${id}`)
 
 export const killRun = (id: number) =>
   api.post(`/api/run/${id}/kill`)
