@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, Modal, Popconfirm, Tooltip } from 'antd'
-import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined, DeleteOutlined } from '@ant-design/icons'
+import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
-import { deleteScript } from '../services/api'
+import { deleteScript, exportScript, importScript } from '../services/api'
 import type { ScriptItem } from '../services/api'
 import TagPicker from '../components/TagPicker'
 import type { DataNode } from 'antd/es/tree'
@@ -59,6 +59,8 @@ export default function ScriptLibrary() {
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds])
 
@@ -126,18 +128,21 @@ export default function ScriptLibrary() {
     {
       title: '操作',
       key: 'actions',
-      width: 70,
+      width: 140,
       render: (_: unknown, record: ScriptItem) => (
-        <Popconfirm
-          title="删除脚本"
-          description="将删除磁盘文件及运行历史，确认？"
-          onConfirm={() => handleDelete(record)}
-          okText="删除"
-          okButtonProps={{ danger: true }}
-          cancelText="取消"
-        >
-          <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
-        </Popconfirm>
+        <Space size="small">
+          <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExport(record)}>导出</Button>
+          <Popconfirm
+            title="删除脚本"
+            description="将删除磁盘文件及运行历史，确认？"
+            onConfirm={() => handleDelete(record)}
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            cancelText="取消"
+          >
+            <Button size="small" danger icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]
@@ -155,6 +160,36 @@ export default function ScriptLibrary() {
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '删除失败')
     }
+  }
+
+  const handleExport = async (record: ScriptItem) => {
+    try {
+      const res = await exportScript(record.id)
+      // blob 下载
+      const url = window.URL.createObjectURL(res.data as Blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `script_${record.id}.zip`
+      a.click()
+      window.URL.revokeObjectURL(url)
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '导出失败')
+    }
+  }
+
+  const handleImport = async (file: File) => {
+    setImporting(true)
+    try {
+      const { data } = await importScript(file)
+      message.success(data.message || '导入成功')
+      setImportOpen(false)
+      fetchScripts()
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '导入失败')
+    } finally {
+      setImporting(false)
+    }
+    return false
   }
 
   const handleTreeSelect = (keys: React.Key[]) => {
@@ -226,6 +261,9 @@ export default function ScriptLibrary() {
           <Button icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
             上传
           </Button>
+          <Button icon={<InboxOutlined />} onClick={() => setImportOpen(true)}>
+            导入
+          </Button>
           <Button icon={<ScanOutlined />} onClick={handleScan} type="primary">
             扫描
           </Button>
@@ -275,6 +313,28 @@ export default function ScriptLibrary() {
           </p>
           <p className="ant-upload-text">点击或拖拽脚本文件到此处上传</p>
           <p className="ant-upload-hint">支持 .py / .sh / .bat / .ps1，最大 10MB</p>
+        </Upload.Dragger>
+      </Modal>
+
+      <Modal
+        title="导入脚本包 (ZIP)"
+        open={importOpen}
+        onCancel={() => setImportOpen(false)}
+        footer={null}
+        width={480}
+      >
+        <Upload.Dragger
+          multiple={false}
+          showUploadList={false}
+          accept=".zip"
+          beforeUpload={handleImport}
+          disabled={importing}
+        >
+          <p className="ant-upload-drag-icon">
+            {importing ? <span style={{ color: '#1677ff' }}>导入中...</span> : <InboxOutlined />}
+          </p>
+          <p className="ant-upload-text">点击或拖拽 ZIP 包到此处导入</p>
+          <p className="ant-upload-hint">导入脚本文件并恢复配置（含标签），最大 10MB</p>
         </Upload.Dragger>
       </Modal>
     </div>

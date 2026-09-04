@@ -2,23 +2,41 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from .database import init_db
+from .database import init_db, async_session
 from .routers.script import router as script_router
 from .routers.tags import router as tags_router
 from .routers.system import router as system_router
 from .routers.run import router as run_router
 from .routers.schedules import router as schedules_router
 from .services.scheduler_service import scheduler_service
+from .services.scanner import scan_scripts
+import asyncio
 import logging
 
 logger = logging.getLogger(__name__)
+
+# 自动同步：每 30 秒轮询扫描脚本目录（PRD 2.4）
+AUTO_SYNC_INTERVAL = 30
+
+
+async def _auto_sync_loop():
+    """后台自动同步：定期调用 scan_scripts，mtime 判断变更，异常不中断"""
+    while True:
+        await asyncio.sleep(AUTO_SYNC_INTERVAL)
+        try:
+            async with async_session() as db:
+                await scan_scripts(db)
+        except Exception as e:
+            logger.error(f"自动同步失败: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await scheduler_service.start()
+    sync_task = asyncio.create_task(_auto_sync_loop())
     yield
+    sync_task.cancel()
     scheduler_service.shutdown()
 
 

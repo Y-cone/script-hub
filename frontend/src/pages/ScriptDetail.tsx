@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber, Tag } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript } from '../services/api'
-import type { TagItem } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript, getScriptDeps } from '../services/api'
+import type { TagItem, DepItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
@@ -80,6 +80,10 @@ export default function ScriptDetail() {
   const [editMode, setEditMode] = useState(false)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
+  // 依赖分析
+  const [depsOpen, setDepsOpen] = useState(false)
+  const [deps, setDeps] = useState<DepItem[]>([])
+  const [depsLoading, setDepsLoading] = useState(false)
 
   useEffect(() => {
     if (id) {
@@ -450,6 +454,22 @@ export default function ScriptDetail() {
     }
   }
 
+  // 手动依赖分析
+  const handleDeps = async () => {
+    if (!id) return
+    setDepsOpen(true)
+    setDepsLoading(true)
+    try {
+      const { data } = await getScriptDeps(Number(id))
+      setDeps(data.deps || [])
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '依赖分析失败')
+      setDepsOpen(false)
+    } finally {
+      setDepsLoading(false)
+    }
+  }
+
   const commandPreview = currentScript
     ? buildCommand(currentScript.name, currentScript.category, params)
     : ''
@@ -715,6 +735,7 @@ export default function ScriptDetail() {
               )}
               <Button onClick={saveRunConfig}>保存配置</Button>
               <Button icon={<CheckCircleOutlined />} onClick={handleEnvCheck}>环境检测</Button>
+              <Button icon={<ApartmentOutlined />} onClick={handleDeps}>依赖分析</Button>
             </Space>
           </div>
         </div>
@@ -775,6 +796,42 @@ export default function ScriptDetail() {
             />
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        title="依赖分析"
+        open={depsOpen}
+        onCancel={() => setDepsOpen(false)}
+        footer={null}
+        width={520}
+      >
+        <Spin spinning={depsLoading}>
+          {deps.length === 0 ? (
+            <p style={{ color: '#888' }}>脚本目录下无依赖文件（requirements.txt / package.json / pyproject.toml）</p>
+          ) : (
+            <Table
+              size="small"
+              rowKey="name"
+              pagination={false}
+              dataSource={deps}
+              columns={[
+                { title: '包名', dataIndex: 'name' },
+                { title: '版本约束', dataIndex: 'constraint', width: 120 },
+                {
+                  title: '状态',
+                  key: 'status',
+                  width: 140,
+                  render: (_: unknown, d: DepItem) =>
+                    d.installed ? (
+                      <Tag color="success">已装 {d.installed_version}</Tag>
+                    ) : (
+                      <Tag color="error">未安装</Tag>
+                    ),
+                },
+              ]}
+            />
+          )}
+        </Spin>
       </Modal>
     </div>
   )

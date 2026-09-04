@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
-from sqlalchemy import select, func, or_, delete, update
+from fastapi.responses import StreamingResponse
+from sqlalchemy import select, func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.script import Script
-from ..models.tag import ScriptTag
+from ..models.tag import ScriptTag, Tag
 from ..models.run_history import RunHistory
 from ..config import get_script_root
 from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
@@ -11,10 +12,13 @@ from ..schemas.tag import UploadResult
 from ..services.scanner import scan_scripts, SUPPORTED_EXTENSIONS
 from ..services.envcheck import check_environment
 from ..services.parser import parse_script
+from ..services.depscan import scan_deps
 from pathlib import Path
 from datetime import datetime
 import json
 import shutil
+import io
+import zipfile
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
@@ -54,7 +58,6 @@ async def _load_tags(db: AsyncSession, script_ids: list[int]) -> dict[int, list[
     """按所属查询脚本标签名"""
     if not script_ids:
         return {}
-    from ..models.tag import Tag
     result = await db.execute(
         select(ScriptTag.script_id, Tag.name)
         .join(Tag, Tag.id == ScriptTag.tag_id)
@@ -130,6 +133,153 @@ async def list_script_dirs(db: AsyncSession = Depends(get_db)):
                 if str(rel_dir) != ".":
                     dirs.add(str(rel_dir))
     return {"directories": sorted(dirs)}
+
+
+@router.get("/{script_id}/deps")
+async def get_script_deps(script_id: int, db: AsyncSession = Depends(get_db)):
+    """深度依赖分析：扫描脚本所在目录的依赖文件并检测安装状态（目录级归属）"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+    deps = await scan_deps(Path(script.path).parent)
+    return {"script_id": script_id, "deps": deps, "dep_file": deps and True or False}
+
+
+@router.get("/{script_id}/export")
+async def export_script(script_id: int, db: AsyncSession = Depends(get_db)):
+    """导出脚本为 ZIP（脚本文件 + manifest.json 配置）"""
+    result = await db.execute(select(Script).where(Script.id == script_id))
+    script = result.scalar_one_or_none()
+    if not script:
+        raise HTTPException(404, "Script not found")
+
+    p = Path(script.path)
+    if not p.exists():
+        raise HTTPException(404, "Script file not found on disk")
+
+    tag_map = await _load_tags(db, [script.id])
+    manifest = {
+        "script": {
+            "name": script.name,
+            "category": script.category,
+            "relative_path": script.relative_path,
+            "description": script.description,
+            "parameters": json.loads(script.parameters or "[]"),
+            "working_dir": script.working_dir,
+            "env_vars": json.loads(script.env_vars) if script.env_vars else None,
+            "dangerous": script.dangerous,
+            "timeout": script.timeout,
+            "env_requests": json.loads(script.env_requests) if script.env_requests else None,
+        },
+        "tags": tag_map.get(script.id, []),
+    }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        # 脚本文件：保留相对路径便于导入还原目录结构
+        zf.write(p, arcname=script.relative_path)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename=script_{script.id}.zip"},
+    )
+
+
+@router.post("/import")
+async def import_script(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """导入脚本 ZIP（脚本文件 + manifest.json 配置），还原目录结构与标签"""
+
+    root = get_script_root()
+    root.mkdir(parents=True, exist_ok=True)
+
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(400, "ZIP 超过 10MB 限制")
+    if not content.startswith(b"PK"):
+        raise HTTPException(400, "不是有效的 ZIP 文件")
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(content)) as zf:
+            names = zf.namelist()
+            # manifest
+            manifest = None
+            if "manifest.json" in names:
+                manifest = json.loads(zf.read("manifest.json"))
+            # 脚本文件：解压出支持扩展名的文件
+            imported = []
+            for n in names:
+                if n.startswith("__MACOSX") or n.endswith("/"):
+                    continue
+                suffix = Path(n).suffix.lower()
+                if suffix in SUPPORTED_EXTENSIONS:
+                    data = zf.read(n)
+                    # 防目录穿越：dest 必须落在 root 内
+                    dest = (root / Path(n)).resolve()
+                    if not dest.is_relative_to(root.resolve()):
+                        continue
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(data)
+                    imported.append(str(Path(n)))
+    except zipfile.BadZipFile:
+        raise HTTPException(400, "ZIP 文件损坏")
+
+    # 扫描入库
+    scan_result = await scan_scripts(db)
+
+    imported_ids = []
+    if imported:
+        rels = [str(Path(x)).replace("\\", "/") for x in imported]
+        r = await db.execute(select(Script).where(Script.relative_path.in_(rels)))
+        imported_ids = [s.id for s in r.scalars().all()]
+
+    # 恢复配置 + 标签
+    if manifest and imported_ids:
+        sc = manifest.get("script", {})
+        first_id = imported_ids[0]
+        # 找第一个导入的脚本 ID（manifest 描述的是主脚本）
+        target = (await db.execute(select(Script).where(Script.id == first_id))).scalar_one_or_none()
+        if target:
+            for k in ("description", "working_dir", "env_vars", "dangerous", "timeout", "env_requests"):
+                if k in sc:
+                    v = sc[k]
+                    if isinstance(v, (dict, list)):
+                        v = json.dumps(v, ensure_ascii=False)
+                    setattr(target, k, v)
+            if sc.get("parameters"):
+                target.parameters = json.dumps(sc["parameters"], ensure_ascii=False)
+            target.source = "import"
+        # 标签：按名匹配/建后关联
+        tag_names = manifest.get("tags", [])
+        if tag_names:
+            new_ids = []
+            for tname in tag_names:
+                tr = await db.execute(select(Tag).where(Tag.name == tname))
+                t = tr.scalar_one_or_none()
+                if not t:
+                    t = Tag(name=tname)
+                    db.add(t)
+                    await db.flush()
+                new_ids.append(t.id)
+            # 替换主脚本的标签
+            old = await db.execute(select(ScriptTag).where(ScriptTag.script_id == first_id))
+            for st in old.scalars().all():
+                await db.delete(st)
+            for tid in set(new_ids):
+                db.add(ScriptTag(script_id=first_id, tag_id=tid))
+
+    await db.commit()
+    return {
+        "message": f"导入 {len(imported)} 个脚本",
+        "imported": imported,
+        "scan": scan_result,
+        "restored": bool(manifest),
+    }
 
 
 @router.get("/{script_id}", response_model=ScriptOut)
@@ -362,7 +512,6 @@ async def env_check(script_id: int, db: AsyncSession = Depends(get_db)):
     script = result.scalar_one_or_none()
     if not script:
         raise HTTPException(404, "Script not found")
-    from ..services.envcheck import check_environment
     checks = check_environment(script)
     return {
         "script_id": script_id,

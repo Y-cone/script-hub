@@ -200,6 +200,26 @@ export interface SystemInfo {
 }
 export const getSystemInfo = () => api.get<SystemInfo>('/api/system/info')
 
+// 依赖分析
+export interface DepItem {
+  name: string
+  constraint: string
+  type: string
+  installed: boolean
+  installed_version: string | null
+}
+export const getScriptDeps = (id: number) =>
+  api.get<{ script_id: number; deps: DepItem[]; dep_file: boolean }>(`/api/scripts/${id}/deps`)
+
+// 导入导出
+export const exportScript = (id: number) =>
+  api.get(`/api/scripts/${id}/export`, { responseType: 'blob' })
+export const importScript = (file: File) => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post<{ message: string; imported: string[]; scan: Record<string, number> }>('/api/scripts/import', fd)
+}
+
 // 调度任务
 export interface ScheduleItem {
   id: number
