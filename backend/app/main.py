@@ -7,6 +7,8 @@ from .routers.script import router as script_router
 from .routers.tags import router as tags_router
 from .routers.system import router as system_router
 from .routers.run import router as run_router
+from .routers.schedules import router as schedules_router
+from .services.scheduler_service import scheduler_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -15,7 +17,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await scheduler_service.start()
     yield
+    scheduler_service.shutdown()
 
 
 app = FastAPI(title="ScriptHub", version="0.1.0", lifespan=lifespan)
@@ -42,6 +46,7 @@ app.include_router(script_router)
 app.include_router(tags_router)
 app.include_router(system_router)
 app.include_router(run_router)
+app.include_router(schedules_router)
 
 
 @app.get("/api/health")

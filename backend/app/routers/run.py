@@ -93,15 +93,20 @@ async def get_run_history(
     page: int = 1,
     page_size: int = 20,
     script_id: int = None,
+    schedule_id: int = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取运行历史"""
+    """获取运行历史。schedule_id 用于筛选某条调度的执行记录。"""
     query = select(RunHistory)
     count_query = select(func.count(RunHistory.id))
     
     if script_id:
         query = query.where(RunHistory.script_id == script_id)
         count_query = count_query.where(RunHistory.script_id == script_id)
+    
+    if schedule_id:
+        query = query.where(RunHistory.schedule_id == schedule_id)
+        count_query = count_query.where(RunHistory.schedule_id == schedule_id)
     
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0

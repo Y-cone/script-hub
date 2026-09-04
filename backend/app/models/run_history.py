@@ -18,3 +18,5 @@ class RunHistory(Base):
     duration: Mapped[float] = mapped_column(Float, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    is_scheduled: Mapped[int] = mapped_column(Integer, default=0)
+    schedule_id: Mapped[int] = mapped_column(Integer, nullable=True)

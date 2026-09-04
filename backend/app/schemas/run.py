@@ -32,6 +32,8 @@ class RunHistoryOut(BaseModel):
     duration: Optional[float]
     started_at: Optional[datetime]
     finished_at: Optional[datetime]
+    is_scheduled: Optional[int] = 0
+    schedule_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

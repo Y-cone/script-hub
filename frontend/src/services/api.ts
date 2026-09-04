@@ -159,6 +159,8 @@ export interface RunHistoryItem {
   duration: number | null
   started_at: string
   finished_at: string | null
+  is_scheduled: number | null
+  schedule_id: number | null
 }
 
 export interface RunHistoryListResponse {
@@ -175,6 +177,7 @@ export const getRunHistory = (params?: {
   page?: number
   page_size?: number
   script_id?: number
+  schedule_id?: number
 }) => api.get<RunHistoryListResponse>('/api/run/history', { params })
 
 export const killRun = (id: number) =>
@@ -196,3 +199,26 @@ export interface SystemInfo {
   runtimes: RuntimeItem[]
 }
 export const getSystemInfo = () => api.get<SystemInfo>('/api/system/info')
+
+// 调度任务
+export interface ScheduleItem {
+  id: number
+  script_id: number
+  script_name: string | null
+  script_path: string | null
+  name: string
+  cron_expr: string | null
+  interval_seconds: number | null
+  enabled: boolean
+  parameters: string
+  env_vars: string | null
+  working_dir: string | null
+  timeout: number
+  created_at: string
+  updated_at: string
+}
+export const getSchedules = () => api.get<{ items: ScheduleItem[]; total: number }>('/api/schedules')
+export const createSchedule = (data: Partial<ScheduleItem>) => api.post<ScheduleItem>('/api/schedules', data)
+export const updateSchedule = (id: number, data: Partial<ScheduleItem>) => api.put<ScheduleItem>(`/api/schedules/${id}`, data)
+export const deleteSchedule = (id: number) => api.delete(`/api/schedules/${id}`)
+export const runScheduleNow = (id: number) => api.post(`/api/schedules/${id}/run`)

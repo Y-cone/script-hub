@@ -113,10 +113,15 @@ export default function ScriptLibrary() {
         ) : <span style={{ color: '#bbb' }}>-</span>,
     },
     {
-      title: '路径',
+      title: '目录',
       dataIndex: 'relative_path',
       key: 'relative_path',
       ellipsis: true,
+      render: (v: string) => {
+        if (!v) return '-'
+        const idx = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\'))
+        return idx >= 0 ? v.slice(0, idx) || '/' : '/'
+      },
     },
     {
       title: '操作',

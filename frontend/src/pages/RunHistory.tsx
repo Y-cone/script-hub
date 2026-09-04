@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
+import { useSearchParams } from 'react-router-dom'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
 import { getDownloadUrl } from '../config'
@@ -32,11 +33,17 @@ export default function RunHistory() {
   const [outputModalVisible, setOutputModalVisible] = useState(false)
   const [selectedOutput, setSelectedOutput] = useState('')
   const [selectedCommand, setSelectedCommand] = useState('')
+  const [searchParams] = useSearchParams()
+  const scheduleId = searchParams.get('schedule_id')
 
   const fetchData = async (page = 1, pageSize = 20) => {
     setLoading(true)
     try {
-      const result = await getRunHistory({ page, page_size: pageSize })
+      const result = await getRunHistory({
+        page,
+        page_size: pageSize,
+        schedule_id: scheduleId ? Number(scheduleId) : undefined,
+      })
       setData(result.data.items)
       setPagination({
         current: page,
@@ -52,7 +59,8 @@ export default function RunHistory() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scheduleId])
 
   const showOutput = (record: RunHistoryItem) => {
     setSelectedOutput(record.output || '无输出')
@@ -73,6 +81,13 @@ export default function RunHistory() {
       key: 'script_id',
       width: 45,
       render: (v: number | null) => (v == null ? <span style={{ color: '#999' }}>已删除</span> : v),
+    },
+    {
+      title: '来源',
+      key: 'source',
+      width: 60,
+      render: (_: unknown, r: RunHistoryItem) =>
+        r.is_scheduled ? <Tag color="purple">调度</Tag> : <Tag>手动</Tag>,
     },
     {
       title: '执行命令',
@@ -163,6 +178,14 @@ export default function RunHistory() {
 
   return (
     <div style={{ height: 'calc(100vh - 160px)', display: 'flex', flexDirection: 'column' }}>
+      {scheduleId && (
+        <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center' }}>
+          <Tag color="purple">调度 #{scheduleId} 的执行记录</Tag>
+          <Button size="small" type="link" onClick={() => (window.location.href = '/history')}>
+            清除筛选
+          </Button>
+        </div>
+      )}
       <Table
         dataSource={data}
         columns={columns}
