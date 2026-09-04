@@ -11,6 +11,9 @@ import re
 # 脚本根目录下的依赖文件名 → 文件类型
 DEP_FILES = ["requirements.txt", "package.json", "pyproject.toml"]
 
+# 依赖分析结果缓存：键=依赖文件(mtime,size)指纹组合 → 解析+安装检测结果
+_cache: dict = {}
+
 
 def _find_dep_files(script_dir: Path):
     """返回脚本目录中存在的所有依赖文件名"""
@@ -109,10 +112,18 @@ async def _installed_npm(pkg: str, workdir: Path) -> tuple[bool, str | None]:
 
 
 async def scan_deps(script_dir: Path) -> list[dict]:
-    """扫描脚本目录的所有依赖文件并检测安装状态。返回依赖列表(可能为空)。"""
+    """扫描脚本目录的所有依赖文件并检测安装状态。返回依赖列表(可能为空)。
+
+    缓存：按依赖文件 (mtime,size) 组合作指纹，未变则复用，避免重复 subprocess。
+    """
     dep_files = _find_dep_files(script_dir)
     if not dep_files:
         return []
+
+    key = tuple((f, (script_dir / f).stat().st_mtime, (script_dir / f).stat().st_size) for f in dep_files)
+    cached = _cache.get(key)
+    if cached is not None:
+        return cached
 
     items = []
     seen = set()
@@ -136,4 +147,5 @@ async def scan_deps(script_dir: Path) -> list[dict]:
                 "installed": installed,
                 "installed_version": version,
             })
+    _cache[key] = items
     return items

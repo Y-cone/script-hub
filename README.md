@@ -15,6 +15,11 @@
 - **运行历史**：记录每次执行（含耗时），支持日志文件下载
 - **本机信息**：查看主机/OS/IP 与运行时版本
 - **安全机制**：高危脚本标记 + 二次确认
+- **自动同步**：文件系统变更自动更新数据库（每 30s 轮询）
+- **深度依赖分析**：解析 requirements.txt / package.json / pyproject.toml，检测安装状态
+- **脚本导入导出**：ZIP 打包（脚本文件 + 配置 manifest），跨机器迁移含标签
+- **定时调度**：APScheduler 驱动 cron/间隔 执行，看板管理 + 立即触发 + 自动恢复
+- **JSON 美化复制**：执行输出一键格式化为缩进 JSON 复制
 
 ## 技术栈
 
@@ -80,7 +85,7 @@ script-hub/
 │   │   ├── models/          # SQLAlchemy 模型
 │   │   ├── schemas/         # Pydantic 数据模式
 │   │   ├── routers/         # API 路由
-│   │   └── services/        # 业务逻辑
+│   │   └── services/        # 业务逻辑（scanner/envcheck/depscan/scheduler_service/executor）
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
@@ -112,13 +117,21 @@ script-hub/
 | POST | /api/scripts/{id}/move | 移动脚本目录 |
 | DELETE | /api/scripts/{id} | 删除脚本（保留历史） |
 | GET | /api/scripts/{id}/env-check | 环境检测 |
+| GET | /api/scripts/{id}/deps | 深度依赖分析 |
+| GET | /api/scripts/{id}/export | 导出脚本 ZIP（含配置 manifest） |
+| POST | /api/scripts/import | 导入脚本 ZIP（恢复配置/标签） |
 | GET | /api/tags | 标签列表 |
 | POST | /api/tags | 创建标签 |
+| PUT / DELETE | /api/tags/{id} | 重命名/删除标签 |
 | GET | /api/system/info | 本机信息 |
 | POST | /api/run | 执行脚本（含环境检测拦截） |
-| GET | /api/run/history | 获取运行历史 |
+| GET | /api/run/history | 获取运行历史（支持 schedule_id 过滤） |
 | POST | /api/run/{id}/kill | 终止运行 |
 | WS | /api/run/ws/{id} | 实时输出 |
+| GET | /api/schedules | 调度列表 |
+| POST | /api/schedules | 创建调度（cron/间隔二选一） |
+| PUT / DELETE | /api/schedules/{id} | 修改/删除调度 |
+| POST | /api/schedules/{id}/run | 立即触发调度执行 |
 
 ## 配置
 
@@ -130,6 +143,17 @@ script-hub/
 
 - 后端：8001（修改 `start.sh` 或启动命令）
 - 前端：5173（修改 `vite.config.ts`）
+
+### 前端 API 地址（桌面化准备）
+
+默认前端走 vite proxy 到 `localhost:8001`。如需前端直连后端（如静态托管/桌面壳），设置环境变量：
+
+```bash
+# frontend/.env
+VITE_API_BASE=http://127.0.0.1:8001
+```
+
+WebSocket 地址由 `VITE_API_BASE` 自动推导（http→ws/https→wss）。参考 `frontend/.env.example`。
 
 ## 开发
 
