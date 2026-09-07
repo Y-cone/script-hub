@@ -19,6 +19,7 @@ export interface ScriptItem {
   source: string
   tags: string[]
   env_requests?: string | null
+  dependencies?: string | null
   available?: boolean | null
   created_at: string
   updated_at: string
@@ -138,6 +139,7 @@ export interface RunRequest {
   timeout?: number
   confirm_dangerous?: boolean
   confirm_env?: boolean
+  device_id?: number
 }
 
 export interface RunResponse {
@@ -178,6 +180,7 @@ export const getRunHistory = (params?: {
   page_size?: number
   script_id?: number
   schedule_id?: number
+  device_id?: number
 }) => api.get<RunHistoryListResponse>('/api/run/history', { params })
 
 export const killRun = (id: number) =>
@@ -210,6 +213,8 @@ export interface DepItem {
 }
 export const getScriptDeps = (id: number) =>
   api.get<{ script_id: number; deps: DepItem[]; dep_file: boolean }>(`/api/scripts/${id}/deps`)
+export const getScriptDepCandidates = (id: number) =>
+  api.get<{ files: string[] }>(`/api/scripts/${id}/dep-candidates`)
 
 // 导入导出
 export const exportScript = (id: number) =>
@@ -220,12 +225,31 @@ export const importScript = (file: File) => {
   return api.post<{ message: string; imported: string[]; scan: Record<string, number> }>('/api/scripts/import', fd)
 }
 
+// 远程设备
+export interface DeviceItem {
+  id: number
+  name: string
+  type: string
+  host: string
+  port: number
+  auth_type: string
+  username: string
+}
+export const getDevices = () => api.get<DeviceItem[]>('/api/devices')
+export const createDevice = (data: Record<string, unknown>) => api.post<DeviceItem>('/api/devices', data)
+export const updateDevice = (id: number, data: Record<string, unknown>) => api.put<DeviceItem>(`/api/devices/${id}`, data)
+export const deleteDevice = (id: number) => api.delete(`/api/devices/${id}`)
+export const testDevice = (id: number) => api.post<{ ok: boolean; message: string; platform?: string; os_info?: string }>(`/api/devices/${id}/test`)
+export const probeDevice = (id: number) => api.get<{ name: string; type: string; host: string; platform: string; os: string; port: number; runtimes: RuntimeItem[] }>(`/api/devices/${id}/probe`)
+
 // 调度任务
 export interface ScheduleItem {
   id: number
   script_id: number
   script_name: string | null
   script_path: string | null
+  device_id: number | null
+  device_name: string | null
   name: string
   cron_expr: string | null
   interval_seconds: number | null

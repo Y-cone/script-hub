@@ -28,8 +28,11 @@ class Base(DeclarativeBase):
 _COLUMN_MIGRATIONS = [
     ("scripts", "source", "VARCHAR(20) DEFAULT 'scan'"),
     ("scripts", "env_requests", "TEXT"),
+    ("scripts", "dependencies", "TEXT"),
     ("run_history", "is_scheduled", "INTEGER DEFAULT 0"),
     ("run_history", "schedule_id", "INTEGER"),
+    ("run_history", "device_id", "INTEGER"),
+    ("schedules", "device_id", "INTEGER"),
 ]
 
 # 需要重建表以更新外键/可空约束的表：{表名: 建表DDL}

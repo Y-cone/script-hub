@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { Table, Button, Switch, Space, Modal, Form, Input, Select, InputNumber, Popconfirm, message, Radio, Tag } from 'antd'
 import { PlusOutlined, CaretRightOutlined, DeleteOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { getSchedules, createSchedule, updateSchedule, deleteSchedule, runScheduleNow, getScripts } from '../services/api'
-import type { ScheduleItem, ScriptItem } from '../services/api'
+import { getSchedules, createSchedule, updateSchedule, deleteSchedule, runScheduleNow, getScripts, getDevices } from '../services/api'
+import type { ScheduleItem, ScriptItem, DeviceItem } from '../services/api'
+import { useDeviceContext } from '../stores/deviceContext'
 
 export default function Schedules() {
   const [items, setItems] = useState<ScheduleItem[]>([])
@@ -11,8 +12,10 @@ export default function Schedules() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<ScheduleItem | null>(null)
   const [scripts, setScripts] = useState<ScriptItem[]>([])
+  const [devices, setDevices] = useState<DeviceItem[]>([])
   const [form] = Form.useForm()
   const navigate = useNavigate()
+  const { currentDeviceId } = useDeviceContext()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -25,9 +28,17 @@ export default function Schedules() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  // 当前设备变化时刷新列表（本地过滤依赖此触发）
+  useEffect(() => { load() }, [currentDeviceId])
   useEffect(() => {
     getScripts({ page_size: 100 }).then((res) => setScripts(res.data.items)).catch(() => {})
+    getDevices().then((res) => setDevices(res.data || [])).catch(() => {})
   }, [])
+
+  // 按当前设备过滤（本机=null 只看本机调度；选设备只看该设备调度）
+  const filtered = currentDeviceId
+    ? items.filter((s) => s.device_id === currentDeviceId)
+    : items.filter((s) => !s.device_id)
 
   const handleToggle = async (s: ScheduleItem, enabled: boolean) => {
     try {
@@ -75,6 +86,7 @@ export default function Schedules() {
       cron_expr: s.cron_expr,
       interval_seconds: s.interval_seconds,
       timeout: s.timeout,
+      device_id: s.device_id ?? undefined,
     })
     setModalOpen(true)
   }
@@ -84,7 +96,7 @@ export default function Schedules() {
   const handleSubmit = async () => {
     try {
       const v = await form.validateFields()
-      const data: any = { name: v.name, script_id: v.script_id, timeout: v.timeout || 0 }
+      const data: any = { name: v.name, script_id: v.script_id, timeout: v.timeout || 0, device_id: v.device_id || null }
       if (v.type === 'cron') {
         data.cron_expr = v.cron_expr
         data.interval_seconds = 0
@@ -121,6 +133,13 @@ export default function Schedules() {
       dataIndex: 'script_path',
       key: 'script_path',
       render: (v: string | null) => (v ? <Tag>{v}</Tag> : '-'),
+    },
+    {
+      title: '目标设备',
+      dataIndex: 'device_name',
+      key: 'device_name',
+      width: 120,
+      render: (v: string | null, r: ScheduleItem) => (r.device_id ? <Tag color="green">{v || `#${r.device_id}`}</Tag> : <Tag>本机</Tag>),
     },
     {
       title: '触发方式',
@@ -164,7 +183,7 @@ export default function Schedules() {
       </div>
 
       <Table
-        dataSource={items}
+        dataSource={filtered}
         columns={columns}
         rowKey="id"
         loading={loading}
@@ -186,6 +205,16 @@ export default function Schedules() {
           </Form.Item>
           <Form.Item name="script_id" label="脚本" rules={[{ required: true }]}>
             <Select options={scriptOptions} placeholder="选择脚本" showSearch optionFilterProp="label" />
+          </Form.Item>
+          <Form.Item name="device_id" label="目标设备">
+            <Select
+              placeholder="本机"
+              options={[
+                { value: 0, label: '本机' },
+                ...devices.map((d) => ({ value: d.id, label: d.name })),
+              ]}
+              onChange={(v) => form.setFieldValue('device_id', v === 0 ? null : v)}
+            />
           </Form.Item>
           <Form.Item name="type" label="触发类型">
             <Radio.Group>

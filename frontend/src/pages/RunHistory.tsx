@@ -4,6 +4,7 @@ import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
 import { getRunHistory } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
+import { useDeviceContext } from '../stores/deviceContext'
 import { getDownloadUrl } from '../config'
 
 const STATUS_COLORS: Record<string, string> = {
@@ -35,6 +36,7 @@ export default function RunHistory() {
   const [selectedCommand, setSelectedCommand] = useState('')
   const [searchParams] = useSearchParams()
   const scheduleId = searchParams.get('schedule_id')
+  const { currentDeviceId } = useDeviceContext()
 
   const fetchData = async (page = 1, pageSize = 20) => {
     setLoading(true)
@@ -43,6 +45,8 @@ export default function RunHistory() {
         page,
         page_size: pageSize,
         schedule_id: scheduleId ? Number(scheduleId) : undefined,
+        // 始终按当前设备上下文过滤（本机不传=全量；设备只显示该设备记录）
+        device_id: currentDeviceId || undefined,
       })
       setData(result.data.items)
       setPagination({
@@ -60,7 +64,7 @@ export default function RunHistory() {
   useEffect(() => {
     fetchData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scheduleId])
+  }, [scheduleId, currentDeviceId])
 
   const showOutput = (record: RunHistoryItem) => {
     setSelectedOutput(record.output || '无输出')
@@ -184,6 +188,11 @@ export default function RunHistory() {
           <Button size="small" type="link" onClick={() => (window.location.href = '/history')}>
             清除筛选
           </Button>
+        </div>
+      )}
+      {!scheduleId && currentDeviceId && (
+        <div style={{ marginBottom: 8 }}>
+          <Tag color="green">当前设备 #{currentDeviceId} 的执行记录</Tag>
         </div>
       )}
       <Table

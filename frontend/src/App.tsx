@@ -7,6 +7,7 @@ import ScriptDetail from './pages/ScriptDetail'
 import RunHistory from './pages/RunHistory'
 import SystemInfo from './pages/SystemInfo'
 import Schedules from './pages/Schedules'
+import Devices from './pages/Devices'
 
 export default function App() {
   return (
@@ -19,6 +20,7 @@ export default function App() {
             <Route path="/history" element={<RunHistory />} />
             <Route path="/system" element={<SystemInfo />} />
             <Route path="/schedules" element={<Schedules />} />
+            <Route path="/devices" element={<Devices />} />
           </Route>
         </Routes>
       </BrowserRouter>

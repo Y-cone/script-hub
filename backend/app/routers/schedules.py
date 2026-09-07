@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.schedule import Schedule
 from ..models.script import Script
+from ..models.device import Device
 from ..schemas.schedule import ScheduleOut, ScheduleCreate, ScheduleUpdate, ScheduleListOut
 from ..services.scheduler_service import scheduler_service, _run_scheduled
 
@@ -26,16 +27,18 @@ async def _reload_schedule(db: AsyncSession, schedule_id: int):
 @router.get("", response_model=ScheduleListOut)
 async def list_schedules(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Schedule, Script.name, Script.relative_path)
+        select(Schedule, Script.name, Script.relative_path, Device.name)
         .join(Script, Script.id == Schedule.script_id, isouter=True)
+        .join(Device, Device.id == Schedule.device_id, isouter=True)
         .order_by(Schedule.id)
     )
     rows = list(result.all())
     items = []
-    for sched, script_name, rel_path in rows:
+    for sched, script_name, rel_path, device_name in rows:
         sched.script_name = script_name
         # script_path = 脚本所在目录（不含文件名）；根目录显示 "/"
         sched.script_path = os.path.dirname(rel_path) or "/" if rel_path else None
+        sched.device_name = device_name
         items.append(sched)
     return ScheduleListOut(items=items, total=len(items))
 
@@ -57,6 +60,7 @@ async def create_schedule(data: ScheduleCreate, db: AsyncSession = Depends(get_d
         env_vars=data.env_vars,
         working_dir=data.working_dir,
         timeout=data.timeout or 0,
+        device_id=data.device_id,
     )
     db.add(sched)
     await db.commit()

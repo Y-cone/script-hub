@@ -18,5 +18,6 @@ class Schedule(Base):
     env_vars: Mapped[str] = mapped_column(Text, nullable=True)  # JSON
     working_dir: Mapped[str] = mapped_column(String(1024), nullable=True)
     timeout: Mapped[int] = mapped_column(Integer, default=0)
+    device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 目标设备（NULL=本机）
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

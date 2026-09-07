@@ -8,6 +8,8 @@ class ScheduleOut(BaseModel):
     script_id: int
     script_name: Optional[str] = None
     script_path: Optional[str] = None
+    device_id: Optional[int] = None
+    device_name: Optional[str] = None
     name: str
     cron_expr: Optional[str]
     interval_seconds: Optional[int]
@@ -31,6 +33,7 @@ class ScheduleCreate(BaseModel):
     env_vars: Optional[str] = None
     working_dir: Optional[str] = None
     timeout: Optional[int] = 0
+    device_id: Optional[int] = None
 
 
 class ScheduleUpdate(BaseModel):
@@ -43,6 +46,7 @@ class ScheduleUpdate(BaseModel):
     env_vars: Optional[str] = None
     working_dir: Optional[str] = None
     timeout: Optional[int] = None
+    device_id: Optional[int] = None
 
 
 class ScheduleListOut(BaseModel):

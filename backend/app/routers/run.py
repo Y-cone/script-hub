@@ -22,7 +22,7 @@ async def run_script(
     request: RunRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """执行脚本"""
+    """执行脚本（本机或远程设备，由 device_id 决定）"""
     result = await db.execute(select(Script).where(Script.id == request.script_id))
     script = result.scalar_one_or_none()
     if not script:
@@ -31,26 +31,38 @@ async def run_script(
     if script.dangerous and not request.confirm_dangerous:
         raise HTTPException(400, "高危脚本需要确认执行")
 
-    # 环境检测前置：不达标时必须 confirm_env=True 才放行
-    env_checks = check_environment(script)
-    env_checks_ok = all(c["ok"] for c in env_checks)
-    if not env_checks_ok and not request.confirm_env:
-        raise HTTPException(
-            409,
-            detail={
-                "message": "环境检测未达标，请确认后重试（confirm_env=true）",
-                "checks": env_checks,
-            },
-        )
+    # 目标设备（远程执行）
+    device = None
+    if request.device_id:
+        from ..models.device import Device as DeviceModel
+        dres = await db.execute(select(DeviceModel).where(DeviceModel.id == request.device_id))
+        device = dres.scalar_one_or_none()
+        if not device:
+            raise HTTPException(404, "Device not found")
+
+    if not device:
+        # 本机环境检测前置：不达标时必须 confirm_env=True 才放行
+        env_checks = check_environment(script)
+        env_checks_ok = all(c["ok"] for c in env_checks)
+        if not env_checks_ok and not request.confirm_env:
+            raise HTTPException(
+                409,
+                detail={
+                    "message": "环境检测未达标，请确认后重试（confirm_env=true）",
+                    "checks": env_checks,
+                },
+            )
     
     # 先创建 run_history 记录
-    command = executor._build_command(script, request.parameters or {})
+    command = (executor._build_command(script, request.parameters or {})
+               if not device else f"ssh {device.host}: {script.name}")
     run_history = RunHistory(
         script_id=script.id,
         parameters=json.dumps(request.parameters or {}, ensure_ascii=False),
         command=command,
         status="running",
-        started_at=datetime.now()
+        started_at=datetime.now(),
+        device_id=device.id if device else None,
     )
     db.add(run_history)
     await db.commit()
@@ -59,14 +71,23 @@ async def run_script(
     # 立即启动后台任务（真正的并发，不阻塞事件循环）
     async def _run():
         try:
-            await executor.execute_script(
-                script=script,
-                run_history_id=run_history.id,
-                parameters=request.parameters or {},
-                working_dir=request.working_dir,
-                env_vars=request.env_vars,
-                timeout=request.timeout or script.timeout or 0
-            )
+            if device:
+                await executor.execute_remote(
+                    script=script,
+                    device=device,
+                    run_history_id=run_history.id,
+                    parameters=request.parameters or {},
+                    timeout=request.timeout or script.timeout or 0,
+                )
+            else:
+                await executor.execute_script(
+                    script=script,
+                    run_history_id=run_history.id,
+                    parameters=request.parameters or {},
+                    working_dir=request.working_dir,
+                    env_vars=request.env_vars,
+                    timeout=request.timeout or script.timeout or 0
+                )
         except Exception as e:
             logger.error(f"后台任务异常: {e}")
             # 确保状态更新为 failed
@@ -84,7 +105,7 @@ async def run_script(
         id=run_history.id,
         status="running",
         command=command,
-        message="脚本执行已启动"
+        message="远程执行已启动" if device else "脚本执行已启动"
     )
 
 
@@ -94,9 +115,10 @@ async def get_run_history(
     page_size: int = 20,
     script_id: int = None,
     schedule_id: int = None,
+    device_id: int = None,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取运行历史。schedule_id 用于筛选某条调度的执行记录。"""
+    """获取运行历史。schedule_id/device_id 用于筛选特定调度/设备的记录。"""
     query = select(RunHistory)
     count_query = select(func.count(RunHistory.id))
     
@@ -107,6 +129,10 @@ async def get_run_history(
     if schedule_id:
         query = query.where(RunHistory.schedule_id == schedule_id)
         count_query = count_query.where(RunHistory.schedule_id == schedule_id)
+
+    if device_id:
+        query = query.where(RunHistory.device_id == device_id)
+        count_query = count_query.where(RunHistory.device_id == device_id)
     
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -116,15 +142,6 @@ async def get_run_history(
     items = result.scalars().all()
     
     return RunHistoryListOut(items=items, total=total, page=page, page_size=page_size)
-
-
-@router.get("/{run_id}", response_model=RunHistoryOut)
-async def get_run_detail(run_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(RunHistory).where(RunHistory.id == run_id))
-    run_history = result.scalar_one_or_none()
-    if not run_history:
-        raise HTTPException(404, "Run history not found")
-    return run_history
 
 
 @router.get("/{run_id}/download")

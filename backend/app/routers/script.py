@@ -22,6 +22,20 @@ import zipfile
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
 
+# 依赖清单敏感文件判定（信任边界：密钥/凭据/口令类禁止随传）
+_SENSITIVE_EXT = {".env", ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".crt", ".cer", ".p7b", ".pub"}
+_SENSITIVE_NAME = {".env", ".git-credentials", ".netrc", ".hgrc", "id_rsa", "id_ed25519", ".htpasswd", "credentials", "secret", "secrets"}
+
+
+def _is_sensitive_dep(rel: str) -> bool:
+    """判断依赖路径是否为敏感文件（禁止随传）。"""
+    name = rel.rsplit("/", 1)[-1].lower()
+    if name in _SENSITIVE_NAME:
+        return True
+    if name.startswith(".env") or ".env." in name:
+        return True
+    return Path(rel).suffix.lower() in _SENSITIVE_EXT
+
 
 def _dict_with_tags(script: Script, tag_names: list[str]) -> dict:
     """将 Script ORM 转 dict，附加标签名列表（供 ScriptOut 序列化）"""
@@ -46,6 +60,7 @@ def _dict_with_tags(script: Script, tag_names: list[str]) -> dict:
         "timeout": script.timeout,
         "source": script.source,
         "env_requests": script.env_requests,
+        "dependencies": script.dependencies,
         "available": available,
         "created_at": script.created_at,
         "updated_at": script.updated_at,
@@ -133,6 +148,19 @@ async def list_script_dirs(db: AsyncSession = Depends(get_db)):
                 if str(rel_dir) != ".":
                     dirs.add(str(rel_dir))
     return {"directories": sorted(dirs)}
+
+
+@router.get("/{script_id}/dep-candidates")
+async def list_dep_candidates(script_id: int, db: AsyncSession = Depends(get_db)):
+    """返回脚本根目录下所有文件相对路径（供依赖清单多选候选）"""
+    await db.execute(select(Script).where(Script.id == script_id))
+    root = get_script_root()
+    files = []
+    if root.exists():
+        for p in sorted(root.rglob("*")):
+            if p.is_file():
+                files.append(str(p.relative_to(root)))
+    return {"files": files}
 
 
 @router.get("/{script_id}/deps")
@@ -314,6 +342,31 @@ async def update_script(script_id: int, data: ScriptUpdate, db: AsyncSession = D
     for field, value in data_dict.items():
         setattr(script, field, value)
 
+    # 校验 dependencies（随传文件清单）必须是 JSON 数组（文件相对脚本根路径），并过滤敏感文件（信任边界，禁止随传）
+    if "dependencies" in data_dict and data_dict.get("dependencies"):
+        raw = data_dict["dependencies"]
+        try:
+            deps = json.loads(raw) if isinstance(raw, str) else raw
+        except json.JSONDecodeError:
+            raise HTTPException(400, "随传文件清单不是合法 JSON")
+        if not isinstance(deps, list):
+            raise HTTPException(400, "随传文件清单必须是 JSON 数组，如 [\"utils.sh\", \"config/app.yaml\"]")
+        root = get_script_root()
+        cleaned = []
+        for rel in deps:
+            if not isinstance(rel, str) or not rel.strip():
+                continue
+            rel = rel.strip().replace("\\", "/")
+            # 目录穿越防护：必须落在脚本根目录内
+            abs = (root / rel).resolve()
+            if not abs.is_relative_to(root.resolve()):
+                raise HTTPException(400, f"非法随传路径（越出脚本根目录）: {rel}")
+            # 敏感后缀过滤
+            if _is_sensitive_dep(rel):
+                raise HTTPException(400, f"敏感文件禁止随传（信任边界）: {rel}")
+            cleaned.append(rel)
+        setattr(script, "dependencies", json.dumps(cleaned, ensure_ascii=False))
+
     await db.commit()
     await db.refresh(script)
     tag_map = await _load_tags(db, [script.id])
@@ -429,16 +482,6 @@ async def upload_script(
     # 自动扫描
     result = await scan_scripts(db)
     return UploadResult(**result, message=f"已上传 {safe_name} 并扫描")
-
-@router.get("/{script_id}/tags", response_model=list[str])
-async def get_script_tags(script_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Script).where(Script.id == script_id))
-    script = result.scalar_one_or_none()
-    if not script:
-        raise HTTPException(404, "Script not found")
-    tag_map = await _load_tags(db, [script.id])
-    return tag_map.get(script.id, [])
-
 
 @router.put("/{script_id}/tags")
 async def set_script_tags(script_id: int, data: TagsUpdate, db: AsyncSession = Depends(get_db)):

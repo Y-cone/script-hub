@@ -11,6 +11,7 @@ class RunRequest(BaseModel):
     timeout: Optional[int] = None
     confirm_dangerous: bool = False
     confirm_env: bool = False
+    device_id: Optional[int] = None  # 目标设备（None=本机执行）
 
 
 class RunResponse(BaseModel):
@@ -34,6 +35,7 @@ class RunHistoryOut(BaseModel):
     finished_at: Optional[datetime]
     is_scheduled: Optional[int] = 0
     schedule_id: Optional[int] = None
+    device_id: Optional[int] = None
 
     model_config = {"from_attributes": True}
 

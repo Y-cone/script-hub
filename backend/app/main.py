@@ -8,6 +8,7 @@ from .routers.tags import router as tags_router
 from .routers.system import router as system_router
 from .routers.run import router as run_router
 from .routers.schedules import router as schedules_router
+from .routers.device import router as device_router
 from .services.scheduler_service import scheduler_service
 from .services.scanner import scan_scripts
 import asyncio
@@ -65,6 +66,7 @@ app.include_router(tags_router)
 app.include_router(system_router)
 app.include_router(run_router)
 app.include_router(schedules_router)
+app.include_router(device_router)
 
 
 @app.get("/api/health")

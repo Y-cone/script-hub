@@ -44,15 +44,6 @@ async def create_tag(data: TagCreate, db: AsyncSession = Depends(get_db)):
     return tag
 
 
-@router.get("/{tag_id}", response_model=TagOut)
-async def get_tag(tag_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Tag).where(Tag.id == tag_id))
-    tag = result.scalar_one_or_none()
-    if not tag:
-        raise HTTPException(404, "Tag not found")
-    return tag
-
-
 @router.put("/{tag_id}", response_model=TagOut)
 async def update_tag(tag_id: int, data: TagUpdate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Tag).where(Tag.id == tag_id))

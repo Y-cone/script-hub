@@ -39,6 +39,15 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
             if not script:
                 return
 
+            # 目标设备（远程执行）
+            device = None
+            if sched.device_id:
+                from ..models.device import Device
+                device = (await db.execute(select(Device).where(Device.id == sched.device_id))).scalar_one_or_none()
+                if not device:
+                    logger.warning(f"调度 {schedule_id} 的目标设备不存在（id={sched.device_id}），跳过")
+                    return
+
             try:
                 parameters = json.loads(sched.parameters or "{}")
             except Exception:
@@ -48,7 +57,8 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
             except Exception:
                 env = None
 
-            command = executor._build_command(script, parameters)
+            command = (executor._build_command(script, parameters)
+                       if not device else f"ssh {device.host}: {script.name}")
             rh = RunHistory(
                 script_id=script.id,
                 parameters=json.dumps(parameters, ensure_ascii=False),
@@ -57,19 +67,29 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
                 started_at=datetime.now(),
                 is_scheduled=1,
                 schedule_id=schedule_id,
+                device_id=device.id if device else None,
             )
             db.add(rh)
             await db.commit()
             await db.refresh(rh)
 
-            asyncio.create_task(executor.execute_script(
-                script=script,
-                run_history_id=rh.id,
-                parameters=parameters,
-                working_dir=sched.working_dir,
-                env_vars=env,
-                timeout=sched.timeout or script.timeout or 0,
-            ))
+            if device:
+                asyncio.create_task(executor.execute_remote(
+                    script=script,
+                    device=device,
+                    run_history_id=rh.id,
+                    parameters=parameters,
+                    timeout=sched.timeout or script.timeout or 0,
+                ))
+            else:
+                asyncio.create_task(executor.execute_script(
+                    script=script,
+                    run_history_id=rh.id,
+                    parameters=parameters,
+                    working_dir=sched.working_dir,
+                    env_vars=env,
+                    timeout=sched.timeout or script.timeout or 0,
+                ))
     finally:
         _running.discard(schedule_id)
 

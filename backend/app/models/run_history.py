@@ -20,3 +20,4 @@ class RunHistory(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     is_scheduled: Mapped[int] = mapped_column(Integer, default=0)
     schedule_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    device_id: Mapped[int] = mapped_column(Integer, nullable=True)

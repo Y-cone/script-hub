@@ -4,12 +4,13 @@ import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, 
 import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
-import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript, getScriptDeps } from '../services/api'
+import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript, getScriptDeps, getScriptDepCandidates } from '../services/api'
 import type { TagItem, DepItem } from '../services/api'
 import CodeViewer from '../components/CodeViewer'
 import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
 import DirSelect from '../components/DirSelect'
+import { useDeviceContext } from '../stores/deviceContext'
 import { getWsBase } from '../config'
 import '../styles/danger.css'
 
@@ -84,6 +85,11 @@ export default function ScriptDetail() {
   const [depsOpen, setDepsOpen] = useState(false)
   const [deps, setDeps] = useState<DepItem[]>([])
   const [depsLoading, setDepsLoading] = useState(false)
+  // 远程执行设备（由右上角"当前设备"全局上下文决定）
+  const { currentDeviceId } = useDeviceContext()
+  // 依赖文件清单（远程执行随传）
+  const [dependencies, setDependencies] = useState<string[]>([])
+  const [depCandidates, setDepCandidates] = useState<string[]>([])
 
   useEffect(() => {
     if (id) {
@@ -95,6 +101,11 @@ export default function ScriptDetail() {
   useEffect(() => {
     getTags().then((res) => setAllTags(res.data.items)).catch(() => {})
   }, [])
+
+  // 加载依赖文件候选列表（脚本根目录所有文件）
+  useEffect(() => {
+    if (id) getScriptDepCandidates(Number(id)).then((res) => setDepCandidates(res.data.files || [])).catch(() => {})
+  }, [id])
 
   useEffect(() => {
     if (currentScript) {
@@ -114,6 +125,11 @@ export default function ScriptDetail() {
       setEnvVars(currentScript.env_vars || '')
       setTimeout(currentScript.timeout || 0)
       setEnvRequests(currentScript.env_requests || '')
+      try {
+        setDependencies(currentScript.dependencies ? JSON.parse(currentScript.dependencies) : [])
+      } catch {
+        setDependencies([])
+      }
       // 初始化标签（名称 → id）
       if (currentScript.tags?.length && allTags.length) {
         const idList = currentScript.tags
@@ -245,6 +261,7 @@ export default function ScriptDetail() {
         env_vars: envVars || null,
         timeout,
         env_requests: envRequests || null,
+        dependencies: dependencies.length ? JSON.stringify(dependencies) : null,
       })
       message.success('配置已保存')
     } catch (e: any) {
@@ -320,7 +337,8 @@ export default function ScriptDetail() {
         env_vars: envVarsObj,
         timeout: timeout || undefined,
         confirm_dangerous: true,
-        confirm_env: confirmEnv
+        confirm_env: confirmEnv,
+        device_id: currentDeviceId || undefined
       })
       
       setCurrentRunId(result.data.id)
@@ -678,6 +696,18 @@ export default function ScriptDetail() {
               </div>
             </div>
           )}
+          <div>
+            <label>随传文件（远程执行时随脚本上传的本地文件）</label>
+            <Select
+              mode="multiple"
+              style={{ width: '100%' }}
+              value={dependencies}
+              onChange={(v) => setDependencies(v as string[])}
+              placeholder="选择随传的本地文件（用于 source/import 等依赖；敏感文件被后端拒绝）"
+              options={depCandidates.map((f) => ({ value: f, label: f }))}
+              filterOption={(input, option) => (option?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+            />
+          </div>
           <div>
             <label>工作目录</label>
             <Input
