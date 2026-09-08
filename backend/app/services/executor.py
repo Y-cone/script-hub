@@ -20,6 +20,26 @@ logger = logging.getLogger(__name__)
 RUNS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "runs"
 
 
+def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str) -> str:
+    """构造 Windows 远端执行命令。
+
+    原则（PRD V3 风险表）：
+    - .py 用 python（非 py launcher）并加 -X utf8 输出 UTF-8（避免 cmd/chcp 嵌套引号坑）
+    - .bat 必须显式 cmd /c（OpenSSH 默认 shell 非 cmd）；路径假定无空格（脚本短名）
+    - .ps1 显式 powershell -ExecutionPolicy Bypass -File
+    - cd 用 cd /d（跨盘符）
+    """
+    if category == "bat":
+        inner = f"chcp 65001 >nul && call \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
+        return f"cmd /c \"cd /d {remote_script_dir} && {inner}\""
+    if category == "powershell":
+        ps = f"powershell -NoProfile -ExecutionPolicy Bypass -File \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
+        return f"cmd /c \"cd /d {remote_script_dir} && {ps}\""
+    # python 及其他 → 直接 python（-X utf8 输出 UTF-8，防中文乱码）
+    py = f"python -X utf8 \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
+    return f"cmd /c \"cd /d {remote_script_dir} && {py}\""
+
+
 class ScriptExecutor:
     """脚本执行引擎"""
     
@@ -330,6 +350,16 @@ class ScriptExecutor:
 
         try:
             client = await pool.get(device)
+            # 探测远端平台（win32/unix），决定命令构造/目录/清理/编码
+            from ..services.ssh_service import detect_platform
+            is_win = (await detect_platform(device)) == "win32"
+            if is_win:
+                # Windows 可写临时目录（用户级 %TEMP% 不可在 SFTP/命令间共享相对路径，用固定 Temp 目录）
+                # (ponytail: 硬编码 C:/Windows/Temp 作 win 临时区；如需随 %TEMP% 动态可后续改进)
+                remote_dir = f"C:/Windows/Temp/script_hub/{script.id}"
+            else:
+                remote_dir = f"/tmp/script_hub/{script.id}"
+            remote_script = f"{remote_dir}/{script.relative_path}"
 
             async def _cb(text):
                 nonlocal collected_output
@@ -390,19 +420,22 @@ class ScriptExecutor:
                 elif pv not in (None, ''):
                     args.append(f"{pn} {pv}")
             arg_str = " ".join(args)
-
-            # 根据 category 选择解释器（远端 Linux/Mac 用 python3，兼容无 python 别名的系统）
-            runner = {
-                "python": "python3", "shell": "bash", "powershell": "pwsh", "bat": "bash"
-            }.get(script.category, "bash")
-            remote_cmd = f"{runner} {remote_script} {arg_str}".strip()
-            # 脚本所在远端目录（cd 至此，使脚本内相对引用如 source ./utils.sh 正确解析）
             remote_script_dir = remote_script.rsplit("/", 1)[0]
+
+            if is_win:
+                full_cmd = _build_win_cmd(script.category, remote_script, arg_str, remote_script_dir)
+            else:
+                # Unix 分支（既有逻辑）
+                runner = {
+                    "python": "python3", "shell": "bash", "powershell": "pwsh", "bat": "bash"
+                }.get(script.category, "bash")
+                remote_cmd = f"{runner} {remote_script} {arg_str}".strip()
+                full_cmd = f"mkdir -p {remote_script_dir} && cd {remote_script_dir} && {remote_cmd}"
 
             # 执行（输出实时回调写 DB），拿到退出码；cd 至脚本所在目录使相对引用依赖正确
             code, _ = await exec_command(
                 device,
-                f"mkdir -p {remote_script_dir} && cd {remote_script_dir} && {remote_cmd}",
+                full_cmd,
                 timeout=timeout or 300,
                 output_cb=_cb,
                 cancel_event=cancel_event,
@@ -432,7 +465,10 @@ class ScriptExecutor:
             # 清理远端脚本目录（主脚本 + 依赖）
             def _cleanup():
                 try:
-                    client.exec_command(f"rm -rf {remote_dir}", timeout=10)
+                    if is_win:
+                        client.exec_command(f'cmd /c "rmdir /s /q {remote_dir.replace("/", chr(92))} 2>nul"', timeout=10)
+                    else:
+                        client.exec_command(f"rm -rf {remote_dir}", timeout=10)
                 except Exception:
                     pass
             await asyncio.to_thread(_cleanup)

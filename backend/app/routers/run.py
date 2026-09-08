@@ -52,6 +52,29 @@ async def run_script(
                     "checks": env_checks,
                 },
             )
+    else:
+        # 远程执行前置：探测远端所需运行时，缺失时软提示（confirm_env=True 放行）
+        from ..services.ssh_service import remote_probe
+        try:
+            probe = await remote_probe(device)
+        except Exception:
+            probe = {"platform": "unix", "runtimes": [], "os_info": ""}
+        need = None
+        if script.category == "python":
+            need = "python"
+        elif script.category == "powershell":
+            need = "powershell"
+        runtime_map = {r["name"]: r for r in probe.get("runtimes", [])}
+        missing = (need and need in runtime_map and not runtime_map[need]["installed"]) or (need and need not in runtime_map)
+        if missing and not request.confirm_env:
+            raise HTTPException(
+                409,
+                detail={
+                    "message": f"远程设备可能缺少 {need} 运行时（平台 {probe.get('platform')}），请确认后重试（confirm_env=true）",
+                    "platform": probe.get("platform"),
+                    "runtime": need,
+                },
+            )
     
     # 先创建 run_history 记录
     command = (executor._build_command(script, request.parameters or {})

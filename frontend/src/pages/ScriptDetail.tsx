@@ -351,19 +351,26 @@ export default function ScriptDetail() {
       // 环境检测未达标：弹出确认，用户确认后带 confirm_env 重试
       const status = error?.response?.status
       const detail = error?.response?.data?.detail
-      if (status === 409 && detail?.checks) {
+      if (status === 409 && (detail?.checks || detail?.runtime)) {
         setIsRunning(false)
         setRunStatus('')
-        const checks = detail.checks as Array<{ name: string; required: string; actual: string | null; detail: string }>
+        // 本机 env 检测：逐项展示；远程运行时缺失：单条提示
+        const isRemote = detail?.runtime
         Modal.confirm({
-          title: '⚠️ 环境检测未达标',
+          title: isRemote ? '⚠️ 远程环境可能缺失运行时' : '⚠️ 环境检测未达标',
           content: (
             <div>
-              {checks.map((c, i) => (
-                <p key={i} style={{ margin: '4px 0' }}>
-                  <strong>{c.name}</strong>: {c.detail}
+              {isRemote ? (
+                <p style={{ margin: '4px 0' }}>
+                  <strong>{detail.message}</strong>
                 </p>
-              ))}
+              ) : (
+                (detail.checks as Array<{ name: string; required: string; actual: string | null; detail: string }>).map((c, i) => (
+                  <p key={i} style={{ margin: '4px 0' }}>
+                    <strong>{c.name}</strong>: {c.detail}
+                  </p>
+                ))
+              )}
               <p style={{ color: '#888', marginTop: 8 }}>确认继续执行吗？</p>
             </div>
           ),

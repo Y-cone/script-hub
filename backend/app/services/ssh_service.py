@@ -193,7 +193,8 @@ async def exec_command(
 
 
 # 远端环境探测命令（复用 envcheck 的探测逻辑，命令走 SSH 在远端执行）
-REMOTE_PROBE_CMDS = {
+# 分平台：先首探平台，再按平台分发第二段探测命令，避免跨平台误报
+REMOTE_PROBE_CMDS_UNIX = {
     "uname": "uname -s",
     "python": "python --version 2>&1",
     "python3": "python3 --version 2>&1",
@@ -202,24 +203,80 @@ REMOTE_PROBE_CMDS = {
     "git": "git --version 2>&1",
     "java": "java -version 2>&1; true",
 }
+REMOTE_PROBE_CMDS_WIN = {
+    "ver": "cmd /c ver",
+    "python": "python --version 2>&1",
+    "node": "node --version 2>&1",
+    "powershell": "powershell -NoProfile -Command \"$PSVersionTable.PSVersion.ToString()\" 2>&1",
+    # 不做 uname/bash/python3（避免 Windows 上误报缺失）
+}
+
+# 首探命令：Windows 有 cmd 且 ver 返回版本；Unix 无 cmd → 报错（据此判平台）
+_PLATFORM_PROBE = "cmd /c ver 2>&1"
+
+
+async def detect_platform(device: Device) -> str:
+    """轻量探测远端平台：仅跑首探命令，返回 'win32' / 'unix'。"""
+    try:
+        _, out = await exec_command(device, _PLATFORM_PROBE, timeout=10)
+        low = out.lower()
+        if "microsoft windows" in low or ("版本" in out and "windows" in low):
+            return "win32"
+    except Exception:
+        pass
+    return "unix"
+
+
+def _installed_from_out(first: str, code: int) -> bool:
+    """从探测输出判断运行时是否安装（识别 Windows/Linux 的 not found 变体）"""
+    if not first or code != 0:
+        return False
+    low = first.lower()
+    nf = ("command not found" in low or "no such file" in low
+          or "not recognized" in low or "不是内部或外部命令" in low)
+    return not nf
 
 
 async def remote_probe(device: Device) -> dict:
-    """在远端探测平台与运行时版本，返回 envcheck 兼容的结构。"""
-    result = {"platform": "unix", "os_info": "", "runtimes": []}
-    for name in ("uname", "python", "python3", "node", "bash", "git", "java"):
-        cmd = REMOTE_PROBE_CMDS[name]
+    """在远端探测平台与运行时版本，返回 envcheck 兼容的结构。
+
+    两段式：首探平台（win32/unix）→ 按平台分发探测命令，避免跨平台误报。
+    """
+    # 第一段：探测平台
+    is_win = False
+    try:
+        code, out = await exec_command(device, _PLATFORM_PROBE, timeout=10)
+        is_win = "microsoft windows" in out.lower() or ("版本" in out and "windows" in out.lower())
+        os_info = out.strip().splitlines()[0] if out.strip() else ""
+    except Exception:
+        code, out, os_info = 1, "", ""
+
+    if is_win:
+        result = {"platform": "win32", "os_info": os_info, "runtimes": []}
+        cmds = REMOTE_PROBE_CMDS_WIN
+        order = ("ver", "python", "node", "powershell")
+    else:
+        result = {"platform": "unix", "os_info": os_info or "", "runtimes": []}
+        cmds = REMOTE_PROBE_CMDS_UNIX
+        order = ("uname", "python", "python3", "node", "bash", "git", "java")
+
+    # 第二段：按平台分发探测
+    for name in order:
+        cmd = cmds[name]
         try:
-            code, out = await exec_command(device, cmd, timeout=10)
-            first = out.strip().splitlines()[0] if out.strip() else ""
+            c, o = await exec_command(device, cmd, timeout=10)
+            first = o.strip().splitlines()[0] if o.strip() else ""
         except Exception as e:
             first = f"探测失败: {e}"
+            c = 1
         if name == "uname":
             low = first.lower()
             result["platform"] = "windows" if "microsoft" in low or "windows" in low else "unix"
             result["os_info"] = first
+        elif name == "ver":
+            result["os_info"] = first or result["os_info"]
         else:
             result["runtimes"].append(
-                {"name": name, "installed": bool(code == 0 and first and "command not found" not in first and "No such file" not in first), "version": first}
+                {"name": name, "installed": _installed_from_out(first, c), "version": first}
             )
     return result
