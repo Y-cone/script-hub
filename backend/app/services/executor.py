@@ -27,8 +27,13 @@ def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_scrip
     - .py 用 python（非 py launcher）并加 -X utf8 输出 UTF-8（避免 cmd/chcp 嵌套引号坑）
     - .bat 必须显式 cmd /c（OpenSSH 默认 shell 非 cmd）；路径假定无空格（脚本短名）
     - .ps1 显式 powershell -ExecutionPolicy Bypass -File
+    - .sh 在 Windows 目标下不受支持（PRD 文档边界，无 bash/source）→ 明确拒绝提示
     - cd 用 cd /d（跨盘符）
     """
+    if category == "shell":
+        # .sh 在 win32 不受支持（需 Git Bash/MSYS2/WSL，非本产品承诺）；显式失败 + 明确提示
+        return ("cmd /c \"echo [边界] .sh 脚本在 Windows 目标下不受支持"
+                "(无 bash/source；除非远端配置 Git Bash/MSYS2/WSL)。请改用 .bat/.ps1/.py。 & exit /b 1\"")
     if category == "bat":
         inner = f"chcp 65001 >nul && call \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
         return f"cmd /c \"cd /d {remote_script_dir} && {inner}\""

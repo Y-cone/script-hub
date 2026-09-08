@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db, async_session
 from ..models.script import Script
 from ..models.run_history import RunHistory
-from ..schemas.run import RunRequest, RunResponse, RunHistoryOut, RunHistoryListOut
+from ..schemas.run import RunRequest, RunResponse, RunHistoryListOut
 from ..services.executor import executor
 from ..services.envcheck import check_environment
 import json
