@@ -25,8 +25,7 @@ _VERSION_CMDS = {
     "node": ["node", "--version"],
     "bash": ["bash", "--version"],
     "powershell": ["powershell", "$PSVersionTable.PSVersion.ToString()"],
-    "git": ["git", "--version"],
-    "java": ["java", "-version"],
+    # 仅保留脚本执行所需运行时；git/java 与执行路径无关，不探测
 }
 
 

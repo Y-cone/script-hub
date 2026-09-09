@@ -200,31 +200,27 @@ REMOTE_PROBE_CMDS_UNIX = {
     "python3": "python3 --version 2>&1",
     "node": "node --version 2>&1",
     "bash": "bash --version 2>&1 | head -1",
-    "git": "git --version 2>&1",
-    "java": "java -version 2>&1; true",
+    # 仅探测执行脚本所需运行时（.py/.js/.sh）；git/java 与执行路径无关，不探测
 }
 REMOTE_PROBE_CMDS_WIN = {
-    "ver": "cmd /c ver",
     "python": "python --version 2>&1",
     "node": "node --version 2>&1",
     "powershell": "powershell -NoProfile -Command \"$PSVersionTable.PSVersion.ToString()\" 2>&1",
-    # 不做 uname/bash/python3（避免 Windows 上误报缺失）
+    # 不做 uname/bash/python3（避免 Windows 上误报缺失）；os 信息由 remote_probe 单独取 %OS%
 }
 
-# 首探命令：Windows 有 cmd 且 ver 返回版本；Unix 无 cmd → 报错（据此判平台）
-_PLATFORM_PROBE = "cmd /c ver 2>&1"
+# 首探命令：Windows 有 cmd 且 ver 成功→echo WIN；Unix 无 cmd→echo UNX。
+# 用退出码+固定 ASCII 标记判平台，避免依赖系统语言/编码（GBK 乱码）解析。
+_PLATFORM_PROBE = "cmd /c ver >nul 2>&1 && echo WIN || echo UNX"
 
 
 async def detect_platform(device: Device) -> str:
-    """轻量探测远端平台：仅跑首探命令，返回 'win32' / 'unix'。"""
+    """轻量探测远端平台：仅跑首探命令（含 WIN/UNX 标记），返回 'win32' / 'unix'。"""
     try:
         _, out = await exec_command(device, _PLATFORM_PROBE, timeout=10)
-        low = out.lower()
-        if "microsoft windows" in low or ("版本" in out and "windows" in low):
-            return "win32"
+        return "win32" if "WIN" in out.upper() else "unix"
     except Exception:
-        pass
-    return "unix"
+        return "unix"
 
 
 def _installed_from_out(first: str, code: int) -> bool:
@@ -242,23 +238,29 @@ async def remote_probe(device: Device) -> dict:
 
     两段式：首探平台（win32/unix）→ 按平台分发探测命令，避免跨平台误报。
     """
-    # 第一段：探测平台
+    # 第一段：探测平台（固定 ASCII 标记，避免语言/编码乱码干扰）
     is_win = False
+    os_info = ""
     try:
         code, out = await exec_command(device, _PLATFORM_PROBE, timeout=10)
-        is_win = "microsoft windows" in out.lower() or ("版本" in out and "windows" in out.lower())
-        os_info = out.strip().splitlines()[0] if out.strip() else ""
+        is_win = "WIN" in out.upper()
     except Exception:
-        code, out, os_info = 1, "", ""
+        code = 1
 
     if is_win:
+        # win：os 用 ASCII 的 %OS%（Windows_NT），避免 ver 输出 GBK 乱码
+        try:
+            _, o = await exec_command(device, "echo %OS%", timeout=10)
+            os_info = o.strip().splitlines()[0] if o.strip() else "Windows"
+        except Exception:
+            os_info = "Windows"
         result = {"platform": "win32", "os_info": os_info, "runtimes": []}
         cmds = REMOTE_PROBE_CMDS_WIN
-        order = ("ver", "python", "node", "powershell")
+        order = ("python", "node", "powershell")  # os 已由 %OS% 取得，不再重探 ver（避免 GBK 乱码）
     else:
-        result = {"platform": "unix", "os_info": os_info or "", "runtimes": []}
+        result = {"platform": "unix", "os_info": os_info, "runtimes": []}
         cmds = REMOTE_PROBE_CMDS_UNIX
-        order = ("uname", "python", "python3", "node", "bash", "git", "java")
+        order = ("uname", "python", "python3", "node", "bash")
 
     # 第二段：按平台分发探测
     for name in order:
@@ -273,8 +275,6 @@ async def remote_probe(device: Device) -> dict:
             low = first.lower()
             result["platform"] = "windows" if "microsoft" in low or "windows" in low else "unix"
             result["os_info"] = first
-        elif name == "ver":
-            result["os_info"] = first or result["os_info"]
         else:
             result["runtimes"].append(
                 {"name": name, "installed": _installed_from_out(first, c), "version": first}

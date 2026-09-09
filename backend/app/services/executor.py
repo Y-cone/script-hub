@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 RUNS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "runs"
 
 
+def _win_abs(path: str) -> str:
+    """Windows cmd 绝对路径：script_hub/...（SFTP 相对用户主目录）→ %USERPROFILE%\\script_hub\\..."""
+    p = path.replace("/", "\\").lstrip("\\")
+    if p.startswith("script_hub\\"):
+        return "%USERPROFILE%\\" + p
+    return p
+
+
 def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str) -> str:
     """构造 Windows 远端执行命令。
 
@@ -34,15 +42,17 @@ def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_scrip
         # .sh 在 win32 不受支持（需 Git Bash/MSYS2/WSL，非本产品承诺）；显式失败 + 明确提示
         return ("cmd /c \"echo [边界] .sh 脚本在 Windows 目标下不受支持"
                 "(无 bash/source；除非远端配置 Git Bash/MSYS2/WSL)。请改用 .bat/.ps1/.py。 & exit /b 1\"")
+    rs = _win_abs(remote_script)
+    rdir = _win_abs(remote_script_dir)
     if category == "bat":
-        inner = f"chcp 65001 >nul && call \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
-        return f"cmd /c \"cd /d {remote_script_dir} && {inner}\""
+        inner = f"chcp 65001 >nul && call \"{rs}\"{' ' + arg_str if arg_str else ''}"
+        return f"cmd /c \"cd /d {rdir} && {inner}\""
     if category == "powershell":
-        ps = f"powershell -NoProfile -ExecutionPolicy Bypass -File \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
-        return f"cmd /c \"cd /d {remote_script_dir} && {ps}\""
+        ps = f"powershell -NoProfile -ExecutionPolicy Bypass -File \"{rs}\"{' ' + arg_str if arg_str else ''}"
+        return f"cmd /c \"cd /d {rdir} && {ps}\""
     # python 及其他 → 直接 python（-X utf8 输出 UTF-8，防中文乱码）
-    py = f"python -X utf8 \"{remote_script}\"{' ' + arg_str if arg_str else ''}"
-    return f"cmd /c \"cd /d {remote_script_dir} && {py}\""
+    py = f"python -X utf8 \"{rs}\"{' ' + arg_str if arg_str else ''}"
+    return f"cmd /c \"cd /d {rdir} && {py}\""
 
 
 class ScriptExecutor:
@@ -359,12 +369,15 @@ class ScriptExecutor:
             from ..services.ssh_service import detect_platform
             is_win = (await detect_platform(device)) == "win32"
             if is_win:
-                # Windows 可写临时目录（用户级 %TEMP% 不可在 SFTP/命令间共享相对路径，用固定 Temp 目录）
-                # (ponytail: 硬编码 C:/Windows/Temp 作 win 临时区；如需随 %TEMP% 动态可后续改进)
-                remote_dir = f"C:/Windows/Temp/script_hub/{script.id}"
+                # Windows：SFTP 传相对路径（无前导 / → OpenSSH sftp 落用户主目录）；cmd 用 %USERPROFILE% 定位
+                # (ponytail: 避免 C:/Windows/Temp 权限问题；强依赖 %USERPROFILE% 环境变量)
+                remote_dir = f"script_hub/{script.id}"  # SFTP 相对用户主目录
             else:
                 remote_dir = f"/tmp/script_hub/{script.id}"
-            remote_script = f"{remote_dir}/{script.relative_path}"
+            # remote_script：sftp 用相对；win cmd 由 _build_win_cmd 加 %USERPROFILE% 前缀
+            remote_script_raw = f"{remote_dir}/{script.relative_path}"
+            remote_script = remote_script_raw
+            remote_script_dir = remote_script.rsplit("/", 1)[0]
 
             async def _cb(text):
                 nonlocal collected_output
@@ -374,13 +387,24 @@ class ScriptExecutor:
                 db_out = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
                 await self._update_db(run_history_id, output=db_out)
 
-            # SFTP 上传主脚本 + 依赖（保留相对目录结构）
+            # SFTP 上传主脚本 + 依赖（保留相对目录结构；目录递归创建，兼容 win 相对 home 路径）
             def _upload():
                 sftp = client.open_sftp()
-                try:
-                    sftp.mkdir(remote_dir)
-                except OSError:
-                    pass
+
+                def _mkdirs(path: str):
+                    """递归建 SFTP 目录（paramiko mkdir 不递归；保留绝对路径前导 /）"""
+                    cur = "/" if path.startswith("/") else ""
+                    for part in path.split("/"):
+                        if not part:
+                            continue
+                        cur = f"{cur}/{part}" if cur else part
+                        try:
+                            sftp.mkdir(cur)
+                        except OSError:
+                            pass
+                    return path
+
+                _mkdirs(remote_dir)
                 # 递归建远端相对子目录
                 def _mkpath(rel: str):
                     parts = rel.split("/")
@@ -471,7 +495,9 @@ class ScriptExecutor:
             def _cleanup():
                 try:
                     if is_win:
-                        client.exec_command(f'cmd /c "rmdir /s /q {remote_dir.replace("/", chr(92))} 2>nul"', timeout=10)
+                        client.exec_command(
+                            f'cmd /c "rmdir /s /q %USERPROFILE%\\{remote_script_dir.replace("/", "\\\\")} 2>nul"',
+                            timeout=10)
                     else:
                         client.exec_command(f"rm -rf {remote_dir}", timeout=10)
                 except Exception:
