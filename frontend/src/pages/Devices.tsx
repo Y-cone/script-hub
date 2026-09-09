@@ -81,7 +81,11 @@ export default function Devices() {
     { title: '名称', dataIndex: 'name' },
     {
       title: '类型', dataIndex: 'type', width: 90,
-      render: (v: string) => <Tag color={v === 'linux' ? 'green' : 'blue'}>{v === 'linux' ? 'Linux' : 'macOS'}</Tag>,
+      render: (v: string) => (
+        v === 'linux' ? <Tag color="green">Linux</Tag>
+        : v === 'mac' ? <Tag color="blue">macOS</Tag>
+        : <Tag color="purple">Windows</Tag>
+      ),
     },
     { title: '主机', dataIndex: 'host' },
     { title: '端口', dataIndex: 'port', width: 70 },
@@ -118,7 +122,11 @@ export default function Devices() {
           <Form.Item name="host" label="主机/IP" rules={[{ required: true }]}><Input placeholder="IP 或主机名" /></Form.Item>
           <Form.Item name="port" label="端口"><InputNumber min={1} max={65535} style={{ width: '100%' }} /></Form.Item>
           <Form.Item name="type" label="类型">
-            <Select options={[{ value: 'linux', label: 'Linux' }, { value: 'mac', label: 'macOS' }]} />
+            <Select options={[
+              { value: 'linux', label: 'Linux' },
+              { value: 'mac', label: 'macOS' },
+              { value: 'windows', label: 'Windows' },
+            ]} />
           </Form.Item>
           <Form.Item name="username" label="用户名" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="auth_type" label="认证方式">

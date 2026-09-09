@@ -20,7 +20,7 @@ class DeviceOut(BaseModel):
 
 class DeviceCreate(BaseModel):
     name: str
-    type: str = "linux"  # linux | mac
+    type: str = "linux"  # linux | mac | windows（仅 UI 区分；执行由 probe.platform 决定）
     host: str
     port: int = 22
     auth_type: str = "password"  # password | key
