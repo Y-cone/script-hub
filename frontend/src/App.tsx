@@ -8,6 +8,7 @@ import RunHistory from './pages/RunHistory'
 import SystemInfo from './pages/SystemInfo'
 import Schedules from './pages/Schedules'
 import Devices from './pages/Devices'
+import TerminalPage from './pages/TerminalPage'
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/system" element={<SystemInfo />} />
             <Route path="/schedules" element={<Schedules />} />
             <Route path="/devices" element={<Devices />} />
+            <Route path="/terminal" element={<TerminalPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

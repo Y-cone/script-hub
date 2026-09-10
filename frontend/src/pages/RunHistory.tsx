@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Table, Tag, Button, Space, message, Tooltip, Modal } from 'antd'
 import { DownloadOutlined, EyeOutlined } from '@ant-design/icons'
 import { useSearchParams } from 'react-router-dom'
-import { getRunHistory } from '../services/api'
+import { getRunHistory, getDevices } from '../services/api'
 import type { RunHistoryItem } from '../services/api'
 import { useDeviceContext } from '../stores/deviceContext'
 import { getDownloadUrl } from '../config'
@@ -37,6 +37,18 @@ export default function RunHistory() {
   const [searchParams] = useSearchParams()
   const scheduleId = searchParams.get('schedule_id')
   const { currentDeviceId } = useDeviceContext()
+  const [devNames, setDevNames] = useState<Record<number, string>>({})
+
+  // 设备 id→name 映射（标题显示设备名，而非“设备 #id”）
+  useEffect(() => {
+    getDevices()
+      .then((res) => {
+        const map: Record<number, string> = {}
+        ;(res.data || []).forEach((d: any) => { map[d.id] = d.name })
+        setDevNames(map)
+      })
+      .catch(() => {})
+  }, [])
 
   const fetchData = async (page = 1, pageSize = 20) => {
     setLoading(true)
@@ -192,7 +204,7 @@ export default function RunHistory() {
       )}
       {!scheduleId && currentDeviceId && (
         <div style={{ marginBottom: 8 }}>
-          <Tag color="green">当前设备 #{currentDeviceId} 的执行记录</Tag>
+          <Tag color="green">当前设备 {devNames[currentDeviceId] || `#${currentDeviceId}`} 的执行记录</Tag>
         </div>
       )}
       <Table

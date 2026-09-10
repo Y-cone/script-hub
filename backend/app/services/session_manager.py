@@ -178,9 +178,10 @@ class RemotePTYSession(SessionHandle):
     """
 
     def __init__(self, session_id: str, output_cb, client,
-                 cols: int = 80, rows: int = 24):
+                 cols: int = 80, rows: int = 24, is_windows: bool = False):
         super().__init__(session_id, output_cb)
         self.client = client
+        self.is_windows = is_windows
         self.channel = None
         self._reader: Optional[Thread] = None
         self._open(cols, rows)
@@ -189,12 +190,13 @@ class RemotePTYSession(SessionHandle):
         self.channel = self.client.get_transport().open_session()
         self.channel.get_pty(term="xterm", width=cols, height=rows)
         self.channel.invoke_shell()
-        # send 专用（invoke_shell 后用 write 或 send，paramiko channel.send 即可）
-        # Windows GBK 目标：会话建立后自动 chcp 65001（PRD F）
-        try:
-            self.channel.sendall("chcp 65001 >nul 2>&1\r\n")
-        except Exception:
-            pass
+        # 仅 Windows 远端（GBK 目标）：会话建立后自动 chcp 65001（PRD F）。
+        # Unix 远端不发送——chcp 是 cmd 内建命令，Unix shell 无此命令。
+        if self.is_windows:
+            try:
+                self.channel.sendall("chcp 65001 >nul 2>&1\r\n")
+            except Exception:
+                pass
         self._reader = Thread(target=self._read_loop, daemon=True)
         self._reader.start()
 
@@ -253,7 +255,8 @@ class SessionRegistry:
                             cols=80, rows=24) -> RemotePTYSession:
         from ..services.ssh_service import pool
         client = await pool.get(device)
-        s = RemotePTYSession(session_id, output_cb, client, cols, rows)
+        is_win = str(getattr(device, 'type', '')).lower() == 'windows'
+        s = RemotePTYSession(session_id, output_cb, client, cols, rows, is_windows=is_win)
         async with self._lock:
             self._sessions[session_id] = s
         return s

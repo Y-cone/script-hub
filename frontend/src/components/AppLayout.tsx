@@ -1,5 +1,5 @@
 import { Layout, Menu, theme, Select } from 'antd'
-import { FileOutlined, HistoryOutlined, ThunderboltOutlined, DesktopOutlined, ScheduleOutlined, ClusterOutlined } from '@ant-design/icons'
+import { FileOutlined, HistoryOutlined, ThunderboltOutlined, DesktopOutlined, ScheduleOutlined, ClusterOutlined, CodeOutlined } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { getDevices } from '../services/api'
@@ -12,6 +12,7 @@ const menuItems = [
   { key: '/history', icon: <HistoryOutlined />, label: '运行历史' },
   { key: '/schedules', icon: <ScheduleOutlined />, label: '定时调度' },
   { key: '/devices', icon: <ClusterOutlined />, label: '远程设备' },
+  { key: '/terminal', icon: <CodeOutlined />, label: '终端' },
   { key: '/system', icon: <DesktopOutlined />, label: '本机信息' },
 ]
 
@@ -83,7 +84,7 @@ export default function AppLayout() {
           alignItems: 'center',
           flexShrink: 0,
         }}>
-          {location.pathname === '/' ? '脚本库' : location.pathname === '/history' ? '运行历史' : location.pathname === '/system' ? '本机信息' : location.pathname === '/schedules' ? '定时调度' : location.pathname === '/devices' ? '远程设备' : '脚本详情'}
+          {location.pathname === '/' ? '脚本库' : location.pathname === '/history' ? '运行历史' : location.pathname === '/system' ? '本机信息' : location.pathname === '/schedules' ? '定时调度' : location.pathname === '/devices' ? '远程设备' : location.pathname === '/terminal' ? '终端' : '脚本详情'}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: 13, color: '#888' }}>当前设备</span>
             <Select
