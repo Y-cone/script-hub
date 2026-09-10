@@ -9,6 +9,8 @@ from .routers.system import router as system_router
 from .routers.run import router as run_router
 from .routers.schedules import router as schedules_router
 from .routers.device import router as device_router
+from .routers.terminal import router as terminal_router
+from .services.session_manager import registry
 from .services.scheduler_service import scheduler_service
 from .services.scanner import scan_scripts
 import asyncio
@@ -31,13 +33,29 @@ async def _auto_sync_loop():
             logger.error(f"自动同步失败: {e}")
 
 
+# 终端会话空闲回收：每 5 分钟检查（默认 30min 超时）
+SESSION_REAP_INTERVAL = 5 * 60
+
+
+async def _session_reap_loop():
+    while True:
+        await asyncio.sleep(SESSION_REAP_INTERVAL)
+        try:
+            await registry.reap_idle()
+        except Exception as e:
+            logger.error(f"会话回收失败: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await scheduler_service.start()
     sync_task = asyncio.create_task(_auto_sync_loop())
+    reap_task = asyncio.create_task(_session_reap_loop())
     yield
     sync_task.cancel()
+    reap_task.cancel()
+    await registry.close_all()
     scheduler_service.shutdown()
 
 
@@ -67,6 +85,7 @@ app.include_router(system_router)
 app.include_router(run_router)
 app.include_router(schedules_router)
 app.include_router(device_router)
+app.include_router(terminal_router)
 
 
 @app.get("/api/health")
