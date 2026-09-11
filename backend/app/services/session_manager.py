@@ -178,25 +178,34 @@ class RemotePTYSession(SessionHandle):
     """
 
     def __init__(self, session_id: str, output_cb, client,
-                 cols: int = 80, rows: int = 24, is_windows: bool = False):
+                 cols: int = 80, rows: int = 24, is_windows: bool = False,
+                 shell: str = ""):
         super().__init__(session_id, output_cb)
         self.client = client
         self.is_windows = is_windows
+        self.shell = shell
         self.channel = None
         self._reader: Optional[Thread] = None
         self._open(cols, rows)
 
     def _open(self, cols: int, rows: int):
-        self.channel = self.client.get_transport().open_session()
-        self.channel.get_pty(term="xterm", width=cols, height=rows)
-        self.channel.invoke_shell()
-        # 仅 Windows 远端（GBK 目标）：会话建立后自动 chcp 65001（PRD F）。
-        # Unix 远端不发送——chcp 是 cmd 内建命令，Unix shell 无此命令。
-        if self.is_windows:
-            try:
-                self.channel.sendall("chcp 65001 >nul 2>&1\r\n")
-            except Exception:
-                pass
+        chan = self.client.get_transport().open_session()
+        chan.get_pty(term="xterm", width=cols, height=rows)
+        if self.shell:
+            # 指定 shell：exec_command 直接启动目标 shell（带 pty 交互）。
+            # 不同于 invoke_shell 后再发命令（会嵌套/报错），exec_command 是替换式，
+            # 选 PowerShell/CMD/Bash/Zsh 都能干净进入目标 shell。
+            chan.exec_command(self.shell)
+        else:
+            # 默认 shell：SSH 登录默认（invoke_shell）
+            chan.invoke_shell()
+            # 仅 Windows 远端（GBK 目标）自动 chcp 65001（PRD F）
+            if self.is_windows:
+                try:
+                    chan.sendall("chcp 65001 >nul 2>&1\r\n")
+                except Exception:
+                    pass
+        self.channel = chan
         self._reader = Thread(target=self._read_loop, daemon=True)
         self._reader.start()
 
@@ -252,11 +261,12 @@ class SessionRegistry:
         return s
 
     async def create_remote(self, session_id: str, output_cb, device: Device,
-                            cols=80, rows=24) -> RemotePTYSession:
+                            cols=80, rows=24, shell: str = "") -> RemotePTYSession:
         from ..services.ssh_service import pool
         client = await pool.get(device)
         is_win = str(getattr(device, 'type', '')).lower() == 'windows'
-        s = RemotePTYSession(session_id, output_cb, client, cols, rows, is_windows=is_win)
+        s = RemotePTYSession(session_id, output_cb, client, cols, rows,
+                             is_windows=is_win, shell=shell)
         async with self._lock:
             self._sessions[session_id] = s
         return s

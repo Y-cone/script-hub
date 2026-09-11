@@ -206,6 +206,9 @@ REMOTE_PROBE_CMDS_WIN = {
     "python": "python --version 2>&1",
     "node": "node --version 2>&1",
     "powershell": "powershell -NoProfile -Command \"$PSVersionTable.PSVersion.ToString()\" 2>&1",
+    # bash：把 Git Bash 常见安装路径并入 PATH 再探测（cmd 默认 PATH 不含 Git\bin）；
+    # 未装 Git Bash 时 bash not recognized → _installed_from_out 判 False
+    "bash": 'cmd /c "set PATH=%PATH%;C:\\Program Files\\Git\\bin;C:\\Program Files (x86)\\Git\\bin& bash --version 2>&1"',
     # 不做 uname/bash/python3（避免 Windows 上误报缺失）；os 信息由 remote_probe 单独取 %OS%
 }
 
@@ -221,6 +224,28 @@ async def detect_platform(device: Device) -> str:
         return "win32" if "WIN" in out.upper() else "unix"
     except Exception:
         return "unix"
+
+
+# 远端 bash 可用性缓存（Git Bash 安装是静态配置，首次探测后缓存）
+_BASH_CACHE: dict[int, bool] = {}
+
+
+async def detect_has_bash(device: Device) -> bool:
+    """探测 Windows 远端是否可执行 bash（Git Bash/MSYS2/WSL）。
+
+    复用 REMOTE_PROBE_CMDS_WIN["bash"]（cmd PATH 并入 Git Bash 常见路径后
+    `bash --version`），与 remote_probe 的判定完全一致；结果按 device 缓存。
+    """
+    if device.id in _BASH_CACHE:
+        return _BASH_CACHE[device.id]
+    try:
+        code, out = await exec_command(device, REMOTE_PROBE_CMDS_WIN["bash"], timeout=10)
+        first = out.strip().splitlines()[0] if out.strip() else ""
+        ok = _installed_from_out(first, code)
+    except Exception:
+        ok = False
+    _BASH_CACHE[device.id] = ok
+    return ok
 
 
 def _installed_from_out(first: str, code: int) -> bool:
@@ -256,7 +281,7 @@ async def remote_probe(device: Device) -> dict:
             os_info = "Windows"
         result = {"platform": "win32", "os_info": os_info, "runtimes": []}
         cmds = REMOTE_PROBE_CMDS_WIN
-        order = ("python", "node", "powershell")  # os 已由 %OS% 取得，不再重探 ver（避免 GBK 乱码）
+        order = ("python", "node", "powershell", "bash")  # os 已由 %OS% 取得，不再重探 ver（避免 GBK 乱码）
     else:
         result = {"platform": "unix", "os_info": os_info, "runtimes": []}
         cmds = REMOTE_PROBE_CMDS_UNIX

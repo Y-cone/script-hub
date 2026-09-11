@@ -50,7 +50,7 @@ async def terminal_ws(websocket: WebSocket,
                 return
             await registry.create_remote(
                 session_id, push_output, dev,
-                cols=max(cols, 1), rows=max(rows, 1))
+                cols=max(cols, 1), rows=max(rows, 1), shell=shell or "")
         else:
             await registry.create_local(session_id, push_output, shell=shell or None)
     except Exception as e:

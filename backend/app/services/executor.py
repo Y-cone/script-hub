@@ -28,20 +28,27 @@ def _win_abs(path: str) -> str:
     return p
 
 
-def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str) -> str:
+def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str,
+                   has_bash: bool = False) -> str:
     """构造 Windows 远端执行命令。
 
     原则（PRD V3 风险表）：
     - .py 用 python（非 py launcher）并加 -X utf8 输出 UTF-8（避免 cmd/chcp 嵌套引号坑）
     - .bat 必须显式 cmd /c（OpenSSH 默认 shell 非 cmd）；路径假定无空格（脚本短名）
     - .ps1 显式 powershell -ExecutionPolicy Bypass -File
-    - .sh 在 Windows 目标下不受支持（PRD 文档边界，无 bash/source）→ 明确拒绝提示
+    - .sh 有 bash（Git Bash/MSYS2/WSL）则用 `bash` 执行；无则显式拒绝提示
     - cd 用 cd /d（跨盘符）
     """
     if category == "shell":
-        # .sh 在 win32 不受支持（需 Git Bash/MSYS2/WSL，非本产品承诺）；显式失败 + 明确提示
-        return ("cmd /c \"echo [边界] .sh 脚本在 Windows 目标下不受支持"
-                "(无 bash/source；除非远端配置 Git Bash/MSYS2/WSL)。请改用 .bat/.ps1/.py。 & exit /b 1\"")
+        if has_bash:
+            # Git Bash 执行 .sh；脚本由 SFTP 上传保持本机 LF（Git Bash 接受 LF）
+            rs = _win_abs(remote_script)
+            rdir = _win_abs(remote_script_dir)
+            return (f"cmd /c \"chcp 65001 >nul && cd /d {rdir} "
+                    f"&& bash {rs}{' ' + arg_str if arg_str else ''}\"")
+        # 无 bash（未装 Git Bash/MSYS2/WSL）→ 明确拒绝 + 提示
+        return ("cmd /c \"echo [边界] .sh 脚本在 Windows 目标下不可执行(未检测到 Bash)。"
+                "请安装 Git Bash/MSYS2/WSL，或改用 .bat/.ps1/.py。 & exit /b 1\"")
     rs = _win_abs(remote_script)
     rdir = _win_abs(remote_script_dir)
     if category == "bat":
@@ -452,7 +459,13 @@ class ScriptExecutor:
             remote_script_dir = remote_script.rsplit("/", 1)[0]
 
             if is_win:
-                full_cmd = _build_win_cmd(script.category, remote_script, arg_str, remote_script_dir)
+                # Windows 跑 .sh 需探测远端 bash（Git Bash/MSYS2/WSL）
+                has_bash = False
+                if script.category == "shell":
+                    from ..services.ssh_service import detect_has_bash
+                    has_bash = await detect_has_bash(device)
+                full_cmd = _build_win_cmd(script.category, remote_script, arg_str, remote_script_dir,
+                                          has_bash=has_bash)
             else:
                 # Unix 分支（既有逻辑）
                 runner = {

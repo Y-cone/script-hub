@@ -3,7 +3,7 @@ import { Table, Input, Button, Space, Tree, message, Tag, Select, Card, Upload, 
 import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutlined, DeleteOutlined, DownloadOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
-import { deleteScript, exportScript, importScript } from '../services/api'
+import { deleteScript, exportScript, importScript, getScriptDirs } from '../services/api'
 import type { ScriptItem } from '../services/api'
 import TagPicker from '../components/TagPicker'
 import type { DataNode } from 'antd/es/tree'
@@ -23,15 +23,15 @@ const CATEGORY_OPTIONS = [
   { label: 'PowerShell', value: 'powershell' },
 ]
 
-function buildTree(scripts: ScriptItem[]): DataNode[] {
+function buildTree(dirs: string[]): DataNode[] {
   const root: Record<string, any> = {}
 
-  for (const s of scripts) {
-    const parts = s.relative_path.split(/[/\\]/)
+  for (const d of dirs) {
+    if (!d) continue
     let node = root
-    for (let i = 0; i < parts.length - 1; i++) {
-      if (!node[parts[i]]) node[parts[i]] = { __children: {} }
-      node = node[parts[i]].__children
+    for (const part of d.split('/')) {
+      if (!node[part]) node[part] = { __children: {} }
+      node = node[part].__children
     }
   }
 
@@ -53,7 +53,7 @@ function buildTree(scripts: ScriptItem[]): DataNode[] {
 export default function ScriptLibrary() {
   const navigate = useNavigate()
   const {
-    scripts, total, page, pageSize, loading, search, category, selectedTagIds,
+    scripts, total, page, pageSize, loading, search, category, selectedTagIds, directory,
     setSearch, setCategory, setSelectedTagIds, setPageSize, fetchScripts, doScan, doUpload, setDirectory,
   } = useScriptStore()
 
@@ -61,10 +61,17 @@ export default function ScriptLibrary() {
   const [uploading, setUploading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [importing, setImporting] = useState(false)
+  // 全量目录列表（来自 /api/scripts/dirs，不随分页变动）
+  const [dirs, setDirs] = useState<string[]>([])
 
-  useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds])
+  const loadDirs = () => {
+    getScriptDirs().then((res) => setDirs(res.data.directories || [])).catch(() => {})
+  }
+  useEffect(loadDirs, [])
 
-  const treeData = useMemo(() => buildTree(scripts), [scripts])
+  useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds, directory])
+
+  const treeData = useMemo(() => buildTree(dirs), [dirs])
 
   const columns = [
     {
@@ -149,6 +156,7 @@ export default function ScriptLibrary() {
 
   const handleScan = async () => {
     const result = await doScan()
+    loadDirs() // 扫描可能新增目录
     message.success(`扫描完成：新增 ${result.added}，更新 ${result.updated}，删除 ${result.removed}`)
   }
 
@@ -199,6 +207,8 @@ export default function ScriptLibrary() {
     } else {
       setDirectory('')
     }
+    // 重置到第 1 页：目录过滤后可能只有少量脚本，停留在第 2 页会得到空列表
+    useScriptStore.setState({ page: 1 })
     fetchScripts()
   }
 

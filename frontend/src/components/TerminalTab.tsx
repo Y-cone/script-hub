@@ -65,6 +65,13 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     ws.onclose = () => {
       if (!closed) xterm.write('\r\n\x1b[90m[连接已断开]\x1b[0m\r\n')
     }
+    // 连接失败/握手失败（如后端未启动、设备不可达）→ 友好提示
+    ws.onerror = () => {
+      // 主动 close（cleanup）会触发 onerror，此时 closed 已置位——不误报
+      if (closed) return
+      onError?.('无法连接终端服务，请确认后端已启动')
+      xterm.write('\r\n\x1b[91m[连接失败] 无法连接终端服务\x1b[0m\r\n')
+    }
 
     // 交互输入 → WS input
     const inputSub = xterm.onData((data) => {
