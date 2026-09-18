@@ -5,9 +5,6 @@
 """
 import asyncio
 import os
-import pty
-import fcntl
-import termios
 import signal
 import struct
 import subprocess
@@ -16,6 +13,14 @@ import time
 import logging
 from threading import Thread
 from typing import Callable, Optional
+
+# POSIX pty 专用模块（pty/fcntl/termios）——Windows 上不存在，条件导入（V5-A Windows 打包暴露）
+if sys.platform.startswith("win"):
+    pty = fcntl = termios = None
+else:
+    import pty
+    import fcntl
+    import termios
 
 from ..models.device import Device
 
@@ -140,7 +145,8 @@ class LocalPTYSession(SessionHandle):
                 pass
 
     def resize(self, cols: int, rows: int):
-        if self.closed or self.master_fd is None:
+        # Windows 本机（master_fd=None）无 pty 尺寸，直接跳过
+        if self.closed or self.master_fd is None or fcntl is None:
             return
         try:
             win = struct.pack("HHHH", rows, cols, 0, 0)
@@ -152,11 +158,13 @@ class LocalPTYSession(SessionHandle):
         if self.closed:
             return
         self.closed = True
-        try:
-            if self.proc and self.proc.poll() is None:
-                os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        # killpg 仅 POSIX（Windows 无进程组概念，由下方 terminate 兜底）
+        if hasattr(os, "killpg"):
+            try:
+                if self.proc and self.proc.poll() is None:
+                    os.killpg(os.getpgid(self.proc.pid), signal.SIGTERM)
+            except (ProcessLookupError, PermissionError, OSError):
+                pass
         try:
             if self.proc and self.proc.poll() is None:
                 self.proc.terminate()

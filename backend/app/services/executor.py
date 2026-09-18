@@ -16,8 +16,9 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# 输出日志目录
-RUNS_DIR = Path(__file__).parent.parent.parent.parent / "data" / "runs"
+# 输出日志目录（单一来源：config.DATA_DIR，支持 SCRIPTHUB_DATA_DIR 覆盖）
+from ..config import DATA_DIR
+RUNS_DIR = DATA_DIR / "runs"
 
 
 def _win_abs(path: str) -> str:

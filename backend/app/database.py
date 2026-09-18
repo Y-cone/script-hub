@@ -3,8 +3,10 @@ from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event, text
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "scripthub.db"
-DB_PATH.parent.mkdir(exist_ok=True)
+from .config import DATA_DIR
+
+DB_PATH = DATA_DIR / "scripthub.db"
+DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 engine = create_async_engine(f"sqlite+aiosqlite:///{DB_PATH}", echo=False, connect_args={"timeout": 30})
 
@@ -100,10 +102,12 @@ async def _rebuild_tables():
 
 
 async def init_db():
-    await _apply_migrations()
-    await _rebuild_tables()
+    # 先建表（幂等）再补列/重建——空库（全新数据目录）时 _apply_migrations 的
+    # ALTER 会因表不存在而失败，create_all 必须在前
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _apply_migrations()
+    await _rebuild_tables()
 
 
 async def get_db() -> AsyncSession:

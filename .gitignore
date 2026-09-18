@@ -5,6 +5,7 @@ PRD-V1.md
 PRD-V2.md
 PRD-V3.md
 PRD-V4.md
+PRD-V5.md
 
 # Python
 __pycache__/
@@ -17,6 +18,8 @@ dist/
 # Node
 node_modules/
 frontend/dist/
+backend/dist/
+backend/build/
 
 # Database
 data/*.db
