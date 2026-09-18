@@ -7,10 +7,24 @@
 """
 import os
 import sys
+import threading
+import time
 from pathlib import Path
 
 _BACKEND_DIR = Path(__file__).parent
 sys.path.insert(0, str(_BACKEND_DIR))
+
+
+def _watch_parent():
+    """父进程看护（PRD-V5 风险表：壳崩溃 → sidecar 僵尸）：
+    壳进程消失（getppid 变 1）→ 自杀。sidecar 由壳以子进程拉起，
+    正常退出时壳会 kill_tree；此线程只兜底壳被强杀的场景。
+    """
+    ppid = os.getppid()
+    while True:
+        time.sleep(2)
+        if os.getppid() != ppid:
+            os._exit(0)  # 父亡，立即退出（不等优雅关闭）
 
 
 def main():
@@ -32,6 +46,10 @@ def main():
 
     port = int(os.environ.get("SCRIPTHUB_PORT", "8001"))
     print(f"[scripthub-server] port={port} data_dir={DATA_DIR}", flush=True)
+
+    # 父进程看护线程（守护线程，uvicorn 主循环退出时自动结束）
+    threading.Thread(target=_watch_parent, daemon=True).start()
+
     uvicorn.run(
         "app.main:app",
         host="127.0.0.1",

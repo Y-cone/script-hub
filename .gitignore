@@ -20,6 +20,9 @@ node_modules/
 frontend/dist/
 backend/dist/
 backend/build/
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+frontend/src-tauri/binaries/
 
 # Database
 data/*.db
