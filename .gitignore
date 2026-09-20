@@ -26,6 +26,7 @@ frontend/src-tauri/binaries/
 
 # Database
 data/*.db
+data/terminal_sessions.json
 
 # IDE
 .vscode/

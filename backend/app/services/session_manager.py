@@ -2,6 +2,7 @@
 
 抽象时机（PRD B）：先实作本机(pty)与远程(invoke_shell)两个实现，统一为 SessionHandle
 接口（send/resize/recv_callback/close）——不对会话来过度抽象。
+V5-C：新增 WinConPTYSession（Windows 本机完整 pty，pywinpty）；会话挂 scrollback 缓冲。
 """
 import asyncio
 import os
@@ -11,6 +12,7 @@ import subprocess
 import sys
 import time
 import logging
+from pathlib import Path
 from threading import Thread
 from typing import Callable, Optional
 
@@ -22,7 +24,14 @@ else:
     import fcntl
     import termios
 
+# pywinpty（V5-C）：Windows 本机 ConPTY，可选依赖，缺失时回退 eval 回显
+try:
+    import winpty
+except ImportError:
+    winpty = None
+
 from ..models.device import Device
+from .terminal_persist import ScrollbackBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +40,7 @@ IDLE_TIMEOUT = 30 * 60
 
 # 本机会话默认 shell（类 Unix）
 DEFAULT_UNIX_SHELL = "/bin/bash"
-# Windows 本机：最小 eval 式回显（不引入 pywinpty，完整 ConPTY 留 V5）
+# Windows 本机：eval 回显兜底（pywinpty 缺失时用；完整 ConPTY 见 WinConPTYSession）
 WIN_EVAL_SHELL = "cmd.exe"
 
 
@@ -46,6 +55,7 @@ class SessionHandle:
         self.output_cb = output_cb  # 回调：接收到的 shell 输出
         self.last_active = time.time()
         self.closed = False
+        self.scrollback = ScrollbackBuffer()  # V5-C：回滚缓冲（持久化数据源）
 
     def touch(self):
         self.last_active = time.time()
@@ -62,6 +72,7 @@ class SessionHandle:
 
     def _emit(self, text: str):
         self.touch()
+        self.scrollback.append(text)  # V5-C：同步入环形缓冲（持久化数据源）
         try:
             self.output_cb(text)
         except Exception:
@@ -178,6 +189,95 @@ class LocalPTYSession(SessionHandle):
                     pass
 
 
+class WinConPTYSession(SessionHandle):
+    """Windows 本机完整 ConPTY 会话（V5-C，pywinpty）。
+
+    vim/top/方向键/resize 全功能（对比 eval 回显兜底的局限）。
+    shell 解析：bash（Git Bash）不在 cmd 默认 PATH——按 PATH + Git Bash
+    常见安装路径解析完整可执行路径（与 detect_has_bash 同源知识）。
+    """
+
+    # Git Bash 常见安装路径（与 ssh_service.detect_has_bash 同源）
+    GIT_BASH_PATHS = [
+        r"C:\Program Files\Git\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+    ]
+
+    def __init__(self, session_id: str, output_cb, shell: str = "",
+                 cols: int = 80, rows: int = 24):
+        super().__init__(session_id, output_cb)
+        self.shell_request = shell
+        self.cols, self.rows = cols, rows
+        self.pty_proc = None
+        self._reader: Optional[Thread] = None
+        self._open()
+
+    def _resolve_shell(self) -> str:
+        """shell 名 → 可执行路径（Windows：bash 需查 Git Bash 安装路径）。"""
+        import shutil
+        name = (self.shell_request or "").strip().lower()
+        if not name or name == "cmd":
+            return "cmd.exe"
+        if name == "powershell":
+            return "powershell.exe"
+        if name == "bash":
+            for p in self.GIT_BASH_PATHS:
+                if Path(p).exists():
+                    return p
+            found = shutil.which("bash")
+            return found or "bash"
+        return self.shell_request  # 用户自定义原样传
+
+    def _open(self):
+        if winpty is None:
+            raise RuntimeError("pywinpty 未安装（应回退 eval 回显分支，不应到达此处）")
+        exe = self._resolve_shell()
+        self.pty_proc = winpty.PtyProcess.spawn(
+            exe, dimensions=(self.rows, self.cols))
+        logger.info(f"ConPTY 会话启动: {exe}")
+        self._reader = Thread(target=self._read_loop, daemon=True)
+        self._reader.start()
+
+    def _read_loop(self):
+        try:
+            while self.pty_proc and self.pty_proc.isalive():
+                # pywinpty 阻塞读（read() 返回 str）；无输出时阻塞直至有数据/退出
+                data = self.pty_proc.read(4096)
+                if not data:
+                    break
+                self._emit(data)
+        except Exception:
+            pass
+        self._emit("\r\n[会话结束]\r\n")
+
+    def send(self, data: str):
+        if self.closed or not self.pty_proc:
+            return
+        try:
+            self.pty_proc.write(data)
+        except Exception:
+            pass
+
+    def resize(self, cols: int, rows: int):
+        if self.closed or not self.pty_proc:
+            return
+        try:
+            self.pty_proc.set_size(rows, cols)
+        except Exception:
+            pass
+
+    def close(self):
+        if self.closed:
+            return
+        self.closed = True
+        try:
+            if self.pty_proc and self.pty_proc.isalive():
+                self.pty_proc.terminate(force=True)
+        except Exception:
+            pass
+
+
 class RemotePTYSession(SessionHandle):
     """远程会话：复用 DeviceSessionPool 连接 + paramiko invoke_shell(get_pty)。
 
@@ -262,8 +362,13 @@ class SessionRegistry:
         self._sessions: dict[str, SessionHandle] = {}
         self._lock = asyncio.Lock()
 
-    async def create_local(self, session_id: str, output_cb, shell=None) -> LocalPTYSession:
-        s = LocalPTYSession(session_id, output_cb, shell)
+    async def create_local(self, session_id: str, output_cb, shell=None,
+                           cols=80, rows=24) -> SessionHandle:
+        # Windows 本机：优先 ConPTY（V5-C），pywinpty 缺失回退 eval 回显
+        if sys.platform.startswith("win") and winpty is not None:
+            s = WinConPTYSession(session_id, output_cb, shell or "", cols, rows)
+        else:
+            s = LocalPTYSession(session_id, output_cb, shell)
         async with self._lock:
             self._sessions[session_id] = s
         return s

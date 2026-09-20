@@ -9,12 +9,44 @@ interface Tab {
   key: string
   deviceId: number | null
   shell: string
+  /** V5-C：恢复标签（未连接态，附只读历史） */
+  restored?: boolean
+  tabId?: string
+  restoredHistory?: string
 }
 
 let seq = 0
 const nextKey = () => `t${++seq}`
 
-// shell 选项按目标平台划分（本机=类 Unix server）
+/** V5-C：恢复标签面板——只读历史 + 重连按钮（PRD 4.F：未连接态恢复） */
+function RestoredPane({ history, tabId, onReconnect }: {
+  history: string
+  tabId: string
+  onReconnect: () => void
+}) {
+  return (
+    <div style={{
+      height: 'calc(100vh - 260px)', display: 'flex', flexDirection: 'column',
+      background: '#1e1e1e', padding: 8, borderRadius: 4,
+    }}>
+      <div style={{
+        flex: 1, overflow: 'auto', fontFamily: 'Consolas, monospace', fontSize: 13,
+        whiteSpace: 'pre-wrap', color: '#d4d4d4', paddingBottom: 8,
+      }}>
+        {history || '（无历史输出）'}
+      </div>
+      <div style={{ borderTop: '1px solid #333', paddingTop: 8, color: '#888', fontSize: 13 }}>
+        会话已结束（应用重启）。以上为历史输出（只读）。设备端进程无法恢复，点击重连开启新会话。
+        <Button size="small" type="primary" style={{ marginLeft: 12 }} onClick={onReconnect}>
+          重连
+        </Button>
+        <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>tab: {tabId}</span>
+      </div>
+    </div>
+  )
+}
+
+// 本机 shell 选项按目标平台划分（本机=类 Unix server）
 const WIN_SHELLS = [
   { value: '', label: '默认' },
   { value: 'cmd', label: 'CMD' },
@@ -71,6 +103,30 @@ export default function TerminalPage() {
   const [activeKey, setActiveKey] = useState<string>(() => tabs[0].key)
   const [selShell, setSelShell] = useState('') // ShellPicker 当前选中
 
+  // V5-C：应用启动 → 恢复持久化标签（未连接态 + 只读历史）
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_BASE || ''}/api/terminal/sessions`)
+      .then((r) => r.json())
+      .then((d) => {
+        const restored: Tab[] = (d.sessions || []).map((s: any) => ({
+          key: nextKey(),
+          deviceId: s.device_id ?? null,
+          shell: s.shell || '',
+          restored: true,
+          tabId: s.tab_id,
+          restoredHistory: s.scrollback || '',
+        }))
+        if (restored.length) {
+          setTabs((prev) => {
+            // 空默认标签则替换，否则追加
+            if (prev.length === 1 && !prev[0].restored) return [...restored, ...prev]
+            return [...restored, ...prev]
+          })
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   // 切换目标设备后重置 shell 选择（避免残留上一平台的值）
   useEffect(() => { setSelShell('') }, [currentDeviceId])
 
@@ -82,6 +138,11 @@ export default function TerminalPage() {
   }
 
   const removeTab = (key: string) => {
+    // V5-C：关闭「恢复标签」→ 同时删除后端持久化记录
+    const t = tabs.find((x) => x.key === key)
+    if (t?.restored && t.tabId) {
+      fetch(`/api/terminal/sessions/${t.tabId}`, { method: 'DELETE' }).catch(() => {})
+    }
     // 基于当前闭包状态计算（避免在 setTabs updater 内调用 setState 副作用）
     const idx = tabs.findIndex((t) => t.key === key)
     const next = tabs.filter((t) => t.key !== key)
@@ -124,8 +185,22 @@ export default function TerminalPage() {
           hideAdd
           items={tabs.map((t) => ({
             key: t.key,
-            label: makeTitle(t.deviceId, t.shell),
-            children: (
+            label: `${makeTitle(t.deviceId, t.shell)}${t.restored ? '（已断开）' : ''}`,
+            children: t.restored ? (
+              <RestoredPane
+                history={t.restoredHistory || ''}
+                tabId={t.tabId!}
+                onReconnect={() => {
+                  // 重连：原 tabId 新建会话标签，替换恢复标签
+                  const key = nextKey()
+                  setTabs((prev) => [
+                    ...prev.filter((x) => x.key !== t.key),
+                    { key, deviceId: t.deviceId, shell: t.shell },
+                  ])
+                  setActiveKey(key)
+                }}
+              />
+            ) : (
               <div style={{ height: 'calc(100vh - 260px)' }}>
                 <TerminalTab
                   deviceId={t.deviceId}

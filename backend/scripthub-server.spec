@@ -12,12 +12,24 @@
   缺失会在此暴露（Linux 构建不含，属预期）
 - SCRIPTHUB_PORT / SCRIPTHUB_DATA_DIR 运行时由壳注入，spec 不固化
 """
+import os
 import sys
+
+# Windows：显式收集 pywinpty(2.x) 的 winpty.dll / winpty-agent.exe 到包内
+# winpty/ 目录（agent 由 _winpty.pyd 按 <pkg_dir>/winpty-agent.exe 定位）
+_winpty_binaries = []
+if sys.platform.startswith("win"):
+    import winpty as _wp
+    _pkg_dir = os.path.dirname(_wp.__file__)
+    for _f in ("winpty.dll", "winpty-agent.exe"):
+        _p = os.path.join(_pkg_dir, _f)
+        if os.path.exists(_p):
+            _winpty_binaries.append((_p, "winpty"))
 
 a = Analysis(
     ["entry.py"],
     pathex=["."],
-    binaries=[],
+    binaries=_winpty_binaries,
     datas=[],
     hiddenimports=[
         # uvicorn 拆分模块，PyInstaller 常见漏采
@@ -42,6 +54,9 @@ a = Analysis(
         "paramiko",
         "cryptography.hazmat.bindings._rust",
         # Windows ConPTY（V5-C）；Windows 上缺包时构建报错即暴露
+        # 注意：pywinpty>=3.0 的 ConPTY 后端（conpty.dll+OpenConsole.exe）在
+        # PyInstaller 冻结环境下管道不通（子进程零输出/退出），须用 2.x
+        # winpty-agent 架构并显式收集二进制（见下方 binaries）
         *(["winpty"] if sys.platform.startswith("win") else []),
     ],
     excludes=[
