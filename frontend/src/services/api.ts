@@ -258,6 +258,7 @@ export interface ScheduleItem {
   env_vars: string | null
   working_dir: string | null
   timeout: number
+  exec_location: 'local' | 'device'
   created_at: string
   updated_at: string
 }

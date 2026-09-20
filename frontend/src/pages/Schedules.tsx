@@ -87,6 +87,7 @@ export default function Schedules() {
       interval_seconds: s.interval_seconds,
       timeout: s.timeout,
       device_id: s.device_id ?? undefined,
+      exec_location: s.exec_location || 'local',
     })
     setModalOpen(true)
   }
@@ -97,6 +98,8 @@ export default function Schedules() {
     try {
       const v = await form.validateFields()
       const data: any = { name: v.name, script_id: v.script_id, timeout: v.timeout || 0, device_id: v.device_id || null }
+      // V5-E：执行位置（device 仅 cron 任务可选——下放不支持 interval）
+      data.exec_location = v.type === 'cron' ? (v.exec_location || 'local') : 'local'
       if (v.type === 'cron') {
         data.cron_expr = v.cron_expr
         data.interval_seconds = 0
@@ -148,6 +151,14 @@ export default function Schedules() {
       render: (_: unknown, r: ScheduleItem) => r.cron_expr
         ? <Tag color="blue">{r.cron_expr}</Tag>
         : <Tag color="green">每 {r.interval_seconds}s</Tag>,
+    },
+    {
+      title: '执行位置',
+      key: 'exec_location',
+      width: 110,
+      render: (_: unknown, r: ScheduleItem) => r.exec_location === 'device'
+        ? <Tag color="purple">设备调度器</Tag>
+        : <Tag>本工具内</Tag>,
     },
     {
       title: '启用',
@@ -215,6 +226,36 @@ export default function Schedules() {
               ]}
               onChange={(v) => form.setFieldValue('device_id', v === 0 ? null : v)}
             />
+          </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.type !== cur.type || prev.device_id !== cur.device_id}>
+            {({ getFieldValue }) => {
+              const isCron = getFieldValue('type') === 'cron'
+              const hasDevice = !!getFieldValue('device_id')
+              if (!isCron) {
+                return (
+                  <Form.Item label="执行位置" tooltip="下放仅支持 Cron 表达式任务">
+                    <Tag>本工具内（interval 不支持下放）</Tag>
+                  </Form.Item>
+                )
+              }
+              if (!hasDevice) {
+                return (
+                  <Form.Item label="执行位置" tooltip="下放需选择远程目标设备">
+                    <Tag>本工具内（下放需选择目标设备）</Tag>
+                  </Form.Item>
+                )
+              }
+              return (
+                <Form.Item name="exec_location" label="执行位置" tooltip="下放后任务写入目标设备系统调度器，工具完全退出也照跑">
+                  <Radio.Group
+                    options={[
+                      { value: 'local', label: '本工具内' },
+                      { value: 'device', label: '目标设备系统调度器' },
+                    ]}
+                  />
+                </Form.Item>
+              )
+            }}
           </Form.Item>
           <Form.Item name="type" label="触发类型">
             <Radio.Group>

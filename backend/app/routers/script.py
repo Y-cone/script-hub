@@ -543,6 +543,10 @@ async def save_script_content(
     except OSError as e:
         raise HTTPException(500, f"写入文件失败: {e}")
 
+    # V5-E：脚本被编辑 → 标记脏（下放任务的远端副本下次部署时增量同步）
+    from ..services.sched_delegate import mark_dirty
+    mark_dirty(script_id)
+
     # 重扫更新 DB 中的元数据（名称/路径/更新时间等）
     await scan_scripts(db)
     return {"message": "已保存", "language": script.category}

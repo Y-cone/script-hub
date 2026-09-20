@@ -19,5 +19,7 @@ class Schedule(Base):
     working_dir: Mapped[str] = mapped_column(String(1024), nullable=True)
     timeout: Mapped[int] = mapped_column(Integer, default=0)
     device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 目标设备（NULL=本机）
+    # V5-E 调度下放：local=工具内 APScheduler（默认）/ device=目标设备系统调度器
+    exec_location: Mapped[str] = mapped_column(String(10), default="local")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

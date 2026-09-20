@@ -34,6 +34,7 @@ _COLUMN_MIGRATIONS = [
     ("run_history", "schedule_id", "INTEGER"),
     ("run_history", "device_id", "INTEGER"),
     ("schedules", "device_id", "INTEGER"),
+    ("schedules", "exec_location", "VARCHAR(10) DEFAULT 'local'"),
 ]
 
 # 需要重建表以更新外键/可空约束的表：{表名: 建表DDL}

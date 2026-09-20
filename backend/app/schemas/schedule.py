@@ -18,6 +18,7 @@ class ScheduleOut(BaseModel):
     env_vars: Optional[str]
     working_dir: Optional[str]
     timeout: int
+    exec_location: Optional[str] = "local"
     created_at: datetime
     updated_at: datetime
 
@@ -34,6 +35,7 @@ class ScheduleCreate(BaseModel):
     working_dir: Optional[str] = None
     timeout: Optional[int] = 0
     device_id: Optional[int] = None
+    exec_location: Optional[str] = "local"  # local | device（V5-E 调度下放）
 
 
 class ScheduleUpdate(BaseModel):
@@ -47,6 +49,7 @@ class ScheduleUpdate(BaseModel):
     working_dir: Optional[str] = None
     timeout: Optional[int] = None
     device_id: Optional[int] = None
+    exec_location: Optional[str] = None
 
 
 class ScheduleListOut(BaseModel):
