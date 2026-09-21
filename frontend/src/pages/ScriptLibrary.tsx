@@ -4,6 +4,8 @@ import { ScanOutlined, SearchOutlined, FolderOutlined, UploadOutlined, InboxOutl
 import { useNavigate } from 'react-router-dom'
 import { useScriptStore } from '../stores/scriptStore'
 import { deleteScript, exportScript, importScript, getScriptDirs } from '../services/api'
+import { saveBinaryFile, openBinaryFile, showContextMenu } from '../services/desktop'
+import { isTauri } from '../config'
 import type { ScriptItem } from '../services/api'
 import TagPicker from '../components/TagPicker'
 import type { DataNode } from 'antd/es/tree'
@@ -70,6 +72,13 @@ export default function ScriptLibrary() {
   useEffect(loadDirs, [])
 
   useEffect(() => { fetchScripts() }, [page, search, category, selectedTagIds, directory])
+
+  // V5-F：F5 刷新（全局快捷键派发事件）
+  useEffect(() => {
+    const onRefresh = () => { fetchScripts(); loadDirs() }
+    window.addEventListener('scripthub:refresh', onRefresh)
+    return () => window.removeEventListener('scripthub:refresh', onRefresh)
+  })
 
   const treeData = useMemo(() => buildTree(dirs), [dirs])
 
@@ -173,16 +182,30 @@ export default function ScriptLibrary() {
   const handleExport = async (record: ScriptItem) => {
     try {
       const res = await exportScript(record.id)
-      // blob 下载
-      const url = window.URL.createObjectURL(res.data as Blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `script_${record.id}.zip`
-      a.click()
-      window.URL.revokeObjectURL(url)
+      const bytes = new Uint8Array(await (res.data as Blob).arrayBuffer())
+      // V5-F：桌面形态走系统保存对话框；Web 回退浏览器下载
+      const saved = await saveBinaryFile(`script_${record.id}.zip`, bytes)
+      if (saved) message.success(`已导出：${saved}`)
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '导出失败')
     }
+  }
+
+  /** V5-F：导入——桌面形态系统打开对话框（拿到 File 后走原上传接口） */
+  const handleImportNative = async () => {
+    const file = await openBinaryFile()
+    if (!file) return
+    await handleImport(file)
+  }
+
+  /** V5-F F2：脚本行右键菜单（执行/详情/导出/删除） */
+  const handleRowContextMenu = (e: React.MouseEvent, record: ScriptItem) => {
+    e.preventDefault()
+    showContextMenu(e.clientX, e.clientY, [
+      { label: '打开详情', onClick: () => navigate(`/scripts/${record.id}`) },
+      { label: '导出', onClick: () => handleExport(record) },
+      { label: '删除', onClick: () => handleDelete(record) },
+    ])
   }
 
   const handleImport = async (file: File) => {
@@ -244,7 +267,7 @@ export default function ScriptLibrary() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Space style={{ marginBottom: 16 }} wrap>
           <Input
-            placeholder="搜索脚本..."
+            placeholder="搜索脚本..." data-shortcut="search"
             prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -271,7 +294,10 @@ export default function ScriptLibrary() {
           <Button icon={<UploadOutlined />} onClick={() => setUploadOpen(true)}>
             上传
           </Button>
-          <Button icon={<InboxOutlined />} onClick={() => setImportOpen(true)}>
+          <Button
+            icon={<InboxOutlined />}
+            onClick={() => (isTauri() ? handleImportNative() : setImportOpen(true))}
+          >
             导入
           </Button>
           <Button icon={<ScanOutlined />} onClick={handleScan} type="primary">
@@ -283,6 +309,9 @@ export default function ScriptLibrary() {
           columns={columns}
           rowKey="id"
           loading={loading}
+          onRow={(record) => ({
+            onContextMenu: (e) => handleRowContextMenu(e, record),
+          })}
           style={{ flex: 1 }}
           pagination={{
             current: page,

@@ -1,0 +1,96 @@
+/* V5-F F1 桌面形态样式（PRD 4.K）：紧凑密度 / 终端原生质感 / 等宽信息 */
+/* 仅作用于 .desktop-mode（App.tsx 在 Tauri 环境下挂载），Web 形态零影响 */
+
+.desktop-mode {
+  /* 低饱和中性色阶（与 desktopTheme.ts 一致；供非 antd 组件/浮层用） */
+  --sh-bg: #1e1f24;
+  --sh-panel: #26272e;
+  --sh-border: #3a3d46;
+  --sh-text: #d5d9e0;
+  --sh-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+}
+
+/* 路径 / 命令 / IP 等等宽信息统一字体（中英混排对齐） */
+.desktop-mode .sh-mono,
+.desktop-mode code,
+.desktop-mode pre {
+  font-family: var(--sh-mono);
+  font-size: 12.5px;
+}
+
+/* 紧凑密度：表格行高≈32、卡片内边距收紧 */
+.desktop-mode .ant-table-tbody > tr > td {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+.desktop-mode .ant-card-body {
+  padding: 10px 12px;
+}
+.desktop-mode .ant-layout-content {
+  margin: 12px !important;
+  padding: 12px !important;
+}
+
+/* ===== V5-G 桌面 Shell 打磨 ===== */
+/* 嵌入的 ScriptDetail：去除原 Card 重边框，收窄内边距（工作区化） */
+.desktop-mode .dsk-detail .ant-card {
+  border-radius: 6px;
+  border-color: var(--sh-border);
+  background: var(--sh-panel);
+  margin-bottom: 10px;
+}
+.desktop-mode .dsk-detail .ant-card-head {
+  border-bottom-color: var(--sh-border);
+  min-height: 36px;
+}
+.desktop-mode .dsk-detail .ant-card-body { padding: 12px 14px; }
+/* 内层容器统一留白节奏 */
+.desktop-mode .dsk-detail > div > div:last-child > * { max-width: 100%; }
+/* 顶栏 Tag 收紧 */
+.desktop-mode .dsk-detail .ant-tag { margin-inline-end: 0; line-height: 18px; }
+/* antd Select/InputNumber/小按钮在参数栏的深色融合 */
+.desktop-mode .dsk-detail .ant-select-selector,
+.desktop-mode .dsk-detail .ant-input-number { background: var(--sh-bg) !important; }
+/* 全局底栏 xterm 内边距统一 */
+.desktop-mode .dsk-detail + div .xterm,
+.desktop-mode [style*="191a1f"] .xterm { padding: 4px 6px; }
+/* 滚动条：桌面深色细条（webkit 内核 webview 生效） */
+.desktop-mode ::-webkit-scrollbar { width: 8px; height: 8px; }
+.desktop-mode ::-webkit-scrollbar-thumb { background: #3a3d46; border-radius: 4px; }
+.desktop-mode ::-webkit-scrollbar-thumb:hover { background: #4a4d56; }
+.desktop-mode ::-webkit-scrollbar-track { background: transparent; }
+
+/* ===== V5-G 工作区内嵌 ScriptDetail 的密度与层级（对照原型 v2） ===== */
+/* 原型中主区无 Card 卡壳：去边框、融背景、仅用分区线 */
+.desktop-mode .dsk-detail .ant-card {
+  background: transparent;
+  border: none;
+  margin-bottom: 0;
+  border-radius: 0;
+}
+.desktop-mode .dsk-detail .ant-card-head {
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--sh-border);
+  font-size: 13px;
+}
+.desktop-mode .dsk-detail .ant-card-head-title { font-size: 13px; }
+.desktop-mode .dsk-detail .ant-card-body { padding: 10px 14px; }
+/* Descriptions/表格行距收紧（原型行高≈32） */
+.desktop-mode .dsk-detail .ant-descriptions-item { padding-bottom: 6px !important; }
+.desktop-mode .dsk-detail .ant-table-tbody > tr > td { padding: 6px 10px !important; }
+/* 代码块（脚本内容）与终端同色系 */
+.desktop-mode .dsk-detail textarea,
+.desktop-mode .dsk-detail pre {
+  background: #191a1f !important;
+  border: 1px solid var(--sh-border) !important;
+  border-radius: 6px;
+  color: #a8b3c2 !important;
+}
+/* 命令预览行 */
+.desktop-mode .dsk-detail div[style*="monospace"] { border-radius: 6px; }
+.desktop-mode .dsk-detail .ant-card,
+.desktop-mode .dsk-detail .ant-card .ant-card-head {
+  border: none !important;
+  box-shadow: none !important;
+}

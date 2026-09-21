@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Descriptions, Button, Spin, Table, Modal, Input, Select, Switch, Space, Popconfirm, message, InputNumber, Tag } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined, ApartmentOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined, PlayCircleOutlined, StopOutlined, EditOutlined, CheckCircleOutlined, ApartmentOutlined, ExportOutlined } from '@ant-design/icons'
 import { useScriptStore } from '../stores/scriptStore'
 import type { ParamDef } from '../services/api'
 import { runScript, killRun, updateScript, moveScript, getTags, setScriptTags, saveScriptContent, envCheckScript, getScriptDeps, getScriptDepCandidates } from '../services/api'
@@ -11,7 +11,7 @@ import Terminal from '../components/Terminal'
 import TagPicker from '../components/TagPicker'
 import DirSelect from '../components/DirSelect'
 import { useDeviceContext } from '../stores/deviceContext'
-import { getWsBase } from '../config'
+import { getWsBase, isTauri } from '../config'
 import '../styles/danger.css'
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -100,6 +100,14 @@ export default function ScriptDetail() {
 
   useEffect(() => {
     getTags().then((res) => setAllTags(res.data.items)).catch(() => {})
+  }, [])
+
+  // V5-F F2：Ctrl+Enter 执行（全局快捷键派发事件）；ref 持有最新 handleRun
+  const runRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const onRun = () => runRef.current()
+    window.addEventListener('scripthub:run', onRun)
+    return () => window.removeEventListener('scripthub:run', onRun)
   }, [])
 
   // 加载依赖文件候选列表（脚本根目录所有文件）
@@ -296,6 +304,9 @@ export default function ScriptDetail() {
     
     await executeScript()
   }
+
+  // V5-F：把 handleRun 注册到 ref（供 Ctrl+Enter 全局快捷键调用）
+  runRef.current = handleRun
 
   // 实际执行脚本的函数（withEnvConfirm 出现环境告警重试时传 true）
   const executeScript = async (confirmEnv = false) => {
@@ -760,6 +771,24 @@ export default function ScriptDetail() {
                 disabled={isRunning}
               >
                 执行脚本
+              </Button>
+              {/* V5-F F2：在新窗口打开（Tauri WebviewWindow / Web window.open） */}
+              <Button
+                icon={<ExportOutlined />}
+                onClick={() => {
+                  const url = `/scripts/${id}`
+                  if (isTauri()) {
+                    import('@tauri-apps/api/webviewWindow').then(({ WebviewWindow }) => {
+                      new WebviewWindow(`script-${id}-${Date.now()}`, {
+                        url, title: `脚本 · ${currentScript?.name ?? id}`, width: 900, height: 700,
+                      })
+                    })
+                  } else {
+                    window.open(url, '_blank', 'width=900,height=700')
+                  }
+                }}
+              >
+                新窗口打开
               </Button>
               {isRunning && (
                 <Button

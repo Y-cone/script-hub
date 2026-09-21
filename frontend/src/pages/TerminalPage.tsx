@@ -153,6 +153,18 @@ export default function TerminalPage() {
     }
   }
 
+  // V5-F F2：快捷键事件（全局 hook 派发）——Ctrl+T 新建 / Ctrl+W 关当前
+  useEffect(() => {
+    const onNew = () => addTab(selShell)
+    const onClose = () => { if (activeKey) removeTab(activeKey) }
+    window.addEventListener('scripthub:term-new', onNew)
+    window.addEventListener('scripthub:term-close', onClose)
+    return () => {
+      window.removeEventListener('scripthub:term-new', onNew)
+      window.removeEventListener('scripthub:term-close', onClose)
+    }
+  })
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       <Space style={{ marginBottom: 8 }} wrap>

@@ -44,6 +44,23 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     const ws = new WebSocket(`${getWsBase()}/api/terminal/ws?${q}`)
     wsRef.current = ws
 
+    // V5-F F2：桌面终端惯例——Ctrl+Insert 复制 / Shift+Insert 粘贴（xterm 默认键位不含）
+    xterm.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true
+      if (e.ctrlKey && e.key === 'Insert') {
+        const sel = xterm.getSelection()
+        if (sel) navigator.clipboard?.writeText(sel)
+        return false
+      }
+      if (e.shiftKey && e.key === 'Insert') {
+        navigator.clipboard?.readText().then((t) => {
+          if (t) wsRef.current?.send(JSON.stringify({ type: 'input', data: t }))
+        })
+        return false
+      }
+      return true
+    })
+
     let closed = false
     ws.onopen = () => {}
     ws.onmessage = (ev) => {

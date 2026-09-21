@@ -10,6 +10,16 @@
     "core:window:allow-close",
     "core:window:allow-hide",
     "core:window:allow-show",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-read-file",
+    "fs:allow-write-file",
+    "fs:allow-read-text-file",
+    "fs:allow-write-text-file",
+    {
+      "identifier": "fs:scope",
+      "allow": [{ "path": "**" }]
+    },
     "shell:allow-spawn",
     {
       "identifier": "shell:allow-execute",

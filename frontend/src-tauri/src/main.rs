@@ -72,6 +72,8 @@ fn kill_tree(pid: u32) {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // 二次启动 → 聚焦已有窗口（PRD 3.1 单实例锁）
             if let Some(w) = app.get_webview_window("main") {
@@ -137,6 +139,16 @@ fn main() {
             if let Some(win) = app.get_webview_window("main") {
                 win.eval(&js)?;
             }
+            // V5-F 修复：eval 在 React 首渲染后才执行（竞态），isTauri() 首判 false 且
+            // 前端 useMemo 缓存不会重算。补发 api-ready 事件 → 前端已有 reload 兜底
+            // （config.ts 监听 scripthub://api-ready 后带地址整页重载）。延迟 1s 等 listen 注册。
+            let app2 = app.handle().clone();
+            let js2 = js.clone();
+            tauri::async_runtime::spawn(async move {
+                std::thread::sleep(std::time::Duration::from_secs(1));
+                use tauri::Emitter;
+                let _ = app2.emit("scripthub://api-ready", js2.trim_start_matches("window.__SCRIPTHUB_API__ = '").trim_end_matches("';"));
+            });
 
             // --- 托盘（PRD 3.1 P0）：图标 + 菜单（显示主窗口/退出） ---
             use tauri::menu::{Menu, MenuItem};
