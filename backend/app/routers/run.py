@@ -4,10 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db, async_session
 from ..models.script import Script
 from ..models.run_history import RunHistory
+from ..models.device import Device
 from ..schemas.run import RunRequest, RunResponse, RunHistoryListOut
-from ..services.executor import executor
+from typing import Optional
+from ..services.executor import executor, resolve_runner, spawn_background
 from ..services.envcheck import check_environment
 import json
+import sys
 import asyncio
 from datetime import datetime
 import logging
@@ -34,8 +37,7 @@ async def run_script(
     # 目标设备（远程执行）
     device = None
     if request.device_id:
-        from ..models.device import Device as DeviceModel
-        dres = await db.execute(select(DeviceModel).where(DeviceModel.id == request.device_id))
+        dres = await db.execute(select(Device).where(Device.id == request.device_id))
         device = dres.scalar_one_or_none()
         if not device:
             raise HTTPException(404, "Device not found")
@@ -77,7 +79,15 @@ async def run_script(
             )
     
     # 先创建 run_history 记录
-    command = (executor._build_command(script, request.parameters or {})
+    # V5-G（SPEC §2.4）：Shell 覆盖的平台合法性前置校验（executor 内仍是权威校验，此处只为给出清晰 400）
+    if request.shell:
+        is_win_target = (device.type == "windows") if device else (sys.platform == "win32")
+        try:
+            resolve_runner(request.shell, is_win_target)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    command = (executor._build_command(script, request.parameters or {}, shell=request.shell)
                if not device else f"ssh {device.host}: {script.name}")
     run_history = RunHistory(
         script_id=script.id,
@@ -101,6 +111,7 @@ async def run_script(
                     run_history_id=run_history.id,
                     parameters=request.parameters or {},
                     timeout=request.timeout or script.timeout or 0,
+                    shell=request.shell,
                 )
             else:
                 await executor.execute_script(
@@ -109,20 +120,23 @@ async def run_script(
                     parameters=request.parameters or {},
                     working_dir=request.working_dir,
                     env_vars=request.env_vars,
-                    timeout=request.timeout or script.timeout or 0
+                    timeout=request.timeout or script.timeout or 0,
+                    shell=request.shell,
                 )
         except Exception as e:
             logger.error(f"后台任务异常: {e}")
-            # 确保状态更新为 failed
+            # 确保状态更新为 failed（终态三件套齐全：status/finished_at/duration）
+            now = datetime.now()
             await executor._update_db(
                 run_history.id,
                 status="failed",
                 exit_code=-1,
                 output=f"执行异常: {str(e)}",
-                finished_at=datetime.now()
+                finished_at=now,
+                duration=(now - run_history.started_at).total_seconds() if run_history.started_at else None,
             )
     
-    asyncio.create_task(_run())
+    spawn_background(_run())
     
     return RunResponse(
         id=run_history.id,
@@ -137,33 +151,65 @@ async def get_run_history(
     page: int = 1,
     page_size: int = 20,
     script_id: int = None,
+    status: Optional[str] = None,
+    source: Optional[str] = None,
     schedule_id: int = None,
     device_id: int = None,
+    from_time: Optional[datetime] = None,
+    to_time: Optional[datetime] = None,
+    preview: bool = False,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取运行历史。schedule_id/device_id 用于筛选特定调度/设备的记录。"""
-    query = select(RunHistory)
-    count_query = select(func.count(RunHistory.id))
-    
-    if script_id:
-        query = query.where(RunHistory.script_id == script_id)
-        count_query = count_query.where(RunHistory.script_id == script_id)
-    
-    if schedule_id:
-        query = query.where(RunHistory.schedule_id == schedule_id)
-        count_query = count_query.where(RunHistory.schedule_id == schedule_id)
+    """获取运行历史。schedule_id/device_id 用于筛选特定调度/设备的记录。
 
+    V5-G（SPEC §7.3）：from/to 按时间窗筛选（周历视图按周取事件）；
+    preview=true 时 output 截断为前 2KB（列表首屏体积；抽屉以选中行数据为准）。
+    缺省行为与旧版一致（零破坏）。
+    """
+    # 筛选条件集中成一条列表，**同时**作用于 count 与 items——
+    # 此前 items 的 query 在第 205 行被重建且丢掉全部 where（total 对、行数错：筛 status=timeout 也会返回满页记录）
+    filters = []
+    if script_id:
+        filters.append(RunHistory.script_id == script_id)
+    # status=success|failed|running|killed|timeout（列表「状态」筛选；此前后端完全忽略=假控件）
+    if status:
+        filters.append(RunHistory.status == status)
+    # source=manual|sched（列表「来源」筛选，按 is_scheduled 标记；此前前端根本没传=假控件）
+    if source in ("manual", "sched"):
+        filters.append(RunHistory.is_scheduled == (1 if source == "sched" else 0))
+    if schedule_id:
+        filters.append(RunHistory.schedule_id == schedule_id)
     if device_id:
-        query = query.where(RunHistory.device_id == device_id)
-        count_query = count_query.where(RunHistory.device_id == device_id)
-    
-    total_result = await db.execute(count_query)
+        filters.append(RunHistory.device_id == device_id)
+    if from_time:
+        filters.append(RunHistory.started_at >= from_time)
+    if to_time:
+        filters.append(RunHistory.started_at <= to_time)
+
+    total_result = await db.execute(select(func.count(RunHistory.id)).where(*filters))
     total = total_result.scalar() or 0
-    
-    query = query.order_by(RunHistory.started_at.desc()).offset((page - 1) * page_size).limit(page_size)
+
+    # SPEC §7.2-#4：JOIN 出 script_name/device_name（前端无字典可映射）
+    query = (
+        select(RunHistory, Script.name, Device.name)
+        .join(Script, Script.id == RunHistory.script_id, isouter=True)
+        .join(Device, Device.id == RunHistory.device_id, isouter=True)
+        .where(*filters)
+        .order_by(RunHistory.started_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
     result = await db.execute(query)
-    items = result.scalars().all()
-    
+    rows = result.all()
+
+    items = []
+    for rh, script_name, device_name in rows:
+        rh.script_name = script_name
+        rh.device_name = device_name
+        if preview and rh.output and len(rh.output) > 2048:
+            rh.output = rh.output[:2048]
+        items.append(rh)
+
     return RunHistoryListOut(items=items, total=total, page=page, page_size=page_size)
 
 

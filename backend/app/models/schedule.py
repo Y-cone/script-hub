@@ -9,7 +9,7 @@ class Schedule(Base):
     __tablename__ = "schedules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    script_id: Mapped[int] = mapped_column(Integer, ForeignKey("scripts.id", ondelete="CASCADE"))
+    script_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("scripts.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String(255))
     cron_expr: Mapped[str | None] = mapped_column(String(50), nullable=True)  # cron 表达式
     interval_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 简单间隔

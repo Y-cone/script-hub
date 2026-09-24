@@ -3,6 +3,9 @@
 PRD 要求凭据存系统钥匙串。但 headless/无桌面会话(如 DBUS_SESSION_BUS_ADDRESS 缺失)时
 keyring 无可用后端。此处做部署兜底：keyring 失败 → ~/.config/scripthub/secrets.json (chmod 600)。
 (ponytail: 文件回退非绝对安全，仅作为 keyring 不可用环境的兜底；桌面环境始终走 keyring)
+
+路径可通过环境变量隔离（测试/多实例）：SCRIPTHUB_SECRETS_FILE 显式指定 > XDG_CONFIG_HOME
+（与 app/config.py 的 settings.json 同规则）> ~/.config 默认位置。
 """
 import json
 import logging
@@ -11,8 +14,20 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_SECRETS_DIR = Path.home() / ".config" / "scripthub"
-_SECRETS_FILE = _SECRETS_DIR / "secrets.json"
+
+def _secrets_path() -> Path:
+    """凭据文件路径解析（默认位置与历史行为一致，仅新增可覆盖能力）。"""
+    explicit = os.environ.get("SCRIPTHUB_SECRETS_FILE")
+    if explicit:
+        return Path(explicit)
+    base = os.environ.get("XDG_CONFIG_HOME")
+    if base:
+        return Path(base) / "scripthub" / "secrets.json"
+    return Path.home() / ".config" / "scripthub" / "secrets.json"
+
+
+_SECRETS_FILE = _secrets_path()
+_SECRETS_DIR = _SECRETS_FILE.parent
 
 _keyring = None
 try:
@@ -32,7 +47,8 @@ def _file_secrets() -> dict:
 
 
 def _save_file_secrets(data: dict):
-    _SECRETS_DIR.mkdir(parents=True, exist_ok=True)
+    # 目录 0700（新建时生效；已有目录不主动改动其权限，避免影响用户既有环境）
+    _SECRETS_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     _SECRETS_FILE.write_text(json.dumps(data, indent=2))
     try:
         os.chmod(_SECRETS_FILE, 0o600)
@@ -49,7 +65,8 @@ def set_secret(service: str, username: str, secret: str) -> bool:
             _keyring.set_password(service, username, secret)
             keyring_ok = True
         except Exception as e:
-            logger.warning(f"keyring 不可用，仅写本地文件: {e}")
+            # 只记异常类型：keyring 后端异常文本可能带 service/username，避免任何凭据信息进日志
+            logger.warning("keyring 不可用，仅写本地文件 (%s)", type(e).__name__)
     # 始终写文件兜底（keyring/文件双写，避免进程间 DBUS 会话差异导致读不到）
     data = _file_secrets()
     data.setdefault(service, {})[username] = secret

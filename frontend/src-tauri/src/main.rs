@@ -25,6 +25,16 @@ fn pick_port() -> u16 {
     8001 // 全占用则回落（sidecar 起不来会走错误页）
 }
 
+/// [弃用保留] webview 缓存目录清理：实测两个坑——
+/// ① 删目录与 WebKitGTK 初始化竞态，页面挂起；② 目录不存在时 WebKit 无 dbus 会话无法自建，同样挂起。
+/// 修复方式（安装包/启动脚本层面）：升级前 `rm -rf ~/.cache/com.scripthub.app && mkdir -p ~/.cache/com.scripthub.app`
+#[allow(dead_code)]
+fn clear_webview_cache() {
+    if let Some(dir) = dirs::cache_dir() {
+        let _ = std::fs::remove_dir_all(dir.join("com.scripthub.app"));
+    }
+}
+
 /// 杀进程树（POSIX：先杀子进程再杀本体；Windows taskkill /T）
 /// plugin spawn 的 sidecar 可能经 wrapper 启动（pid 非脚本进程），
 /// 仅 kill 进程组不可靠 → 递归 /proc 找子进程逐个杀（PRD 3.1 优雅退出）
@@ -69,8 +79,17 @@ fn kill_tree(pid: u32) {
     }
 }
 
+/// 真重启（设置面板「立即重启」）：退出并重新拉起壳进程，sidecar 随 Destroyed 钩子回收后由新进程重建
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart()
+}
+
 fn main() {
+    // V5-G: 缓存清理改在 webview 就绪后延迟执行（见 setup 内 spawn），避免与 GTK 初始化竞态。
+
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![restart_app])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -85,7 +104,9 @@ fn main() {
         .setup(|app| {
             // --- sidecar 启动 ---
             let port = pick_port();
-            // SCRIPTHUB_DATA_DIR 外部可覆盖（开发/测试用）；未设置才用 app_data_dir
+            // 数据目录：外部 SCRIPTHUB_DATA_DIR 最高优先（开发/测试覆盖）；否则注入默认目录
+            // v2.14：壳注入改用 SCRIPTHUB_DEFAULT_DATA_DIR——若注入 SCRIPTHUB_DATA_DIR，
+            // readonly.data_dir 永久为真（面板永远置灰）且 settings.json 的 data_dir 永不生效
             let data_dir = std::env::var("SCRIPTHUB_DATA_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| {
@@ -108,7 +129,7 @@ fn main() {
                 .sidecar("scripthub-server")
                 .map_err(|e| format!("sidecar 解析失败: {e}"))?
                 .env("SCRIPTHUB_PORT", port.to_string())
-                .env("SCRIPTHUB_DATA_DIR", data_dir.display().to_string());
+                .env("SCRIPTHUB_DEFAULT_DATA_DIR", data_dir.display().to_string());
             if let Some(old) = old_data_dir {
                 cmd = cmd.env("SCRIPTHUB_OLD_DATA_DIR", old.display().to_string());
             }
@@ -133,6 +154,18 @@ fn main() {
                     }
                 }
             });
+
+            // --- 窗口去装饰（H-1）：必须在窗口首次 map 之前生效 ---
+            // tao 的 GTK 建窗顺序是 set_visible(platform_impl/linux/window.rs:181) →
+            // set_decorated(:182)：窗口若先被 map，mutter 按「未声明无装饰」给 37px SSD
+            // 标题栏（白栏），之后补 _MOTIF_WM_HINTS 只能等 mutter 回收 frame，实测约 1/3
+            // 概率回收不掉 → 白栏复发。所以 tauri.conf.json 用 visible:false 建窗（不 map），
+            // 这里显式去装饰后再 show：窗口 realize 时 decorations 已为 false，mutter 不建 frame。
+            // （幂等：与 tauri.conf.json 的 decorations:false 冗余，防配置回退后白栏复发）
+            if let Some(win) = app.get_webview_window("main") {
+                win.set_decorations(false)?;
+                win.show()?;
+            }
 
             // --- 初始化脚本注入（PRD 4.B 方案 a）：页面加载前定义 API 地址 ---
             let js = format!("window.__SCRIPTHUB_API__ = 'http://127.0.0.1:{port}';");

@@ -1,6 +1,10 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Literal
+
+
+# V5-G（SPEC §2.4）：Shell 覆盖白名单——前端下拉只出平台适用项，此处兜住非法值（422）
+ShellName = Literal["bash", "sh", "zsh", "cmd", "powershell", "pwsh", "python3"]
 
 
 class RunRequest(BaseModel):
@@ -12,6 +16,7 @@ class RunRequest(BaseModel):
     confirm_dangerous: bool = False
     confirm_env: bool = False
     device_id: Optional[int] = None  # 目标设备（None=本机执行）
+    shell: Optional[ShellName] = None  # 解释器覆盖（None=按脚本类型自动分派）
 
 
 class RunResponse(BaseModel):
@@ -36,6 +41,8 @@ class RunHistoryOut(BaseModel):
     is_scheduled: Optional[int] = 0
     schedule_id: Optional[int] = None
     device_id: Optional[int] = None
+    script_name: Optional[str] = None   # SPEC §7.2-#4：JOIN scripts
+    device_name: Optional[str] = None   # JOIN devices
 
     model_config = {"from_attributes": True}
 

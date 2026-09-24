@@ -39,6 +39,7 @@ _COLUMN_MIGRATIONS = [
 
 # 需要重建表以更新外键/可空约束的表：{表名: 建表DDL}
 # 背景：run_history.script_id 需改为可空 + ON DELETE SET NULL，以支持删除脚本时保留历史
+# schedules.script_id 同理：CASCADE 会在脚本被扫描器删除时静默级联清掉调度任务
 _TABLE_REBUILDS = {
     "run_history": """
         CREATE TABLE run_history_new (
@@ -53,6 +54,24 @@ _TABLE_REBUILDS = {
             duration FLOAT,
             started_at DATETIME,
             finished_at DATETIME
+        )
+    """,
+    "schedules": """
+        CREATE TABLE schedules_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            script_id INTEGER REFERENCES scripts(id) ON DELETE SET NULL,
+            name VARCHAR(255) NOT NULL,
+            cron_expr VARCHAR(50),
+            interval_seconds INTEGER,
+            enabled BOOLEAN,
+            parameters TEXT,
+            env_vars TEXT,
+            working_dir VARCHAR(1024),
+            timeout INTEGER,
+            device_id INTEGER,
+            exec_location VARCHAR(10) DEFAULT 'local',
+            created_at DATETIME,
+            updated_at DATETIME
         )
     """,
 }
@@ -91,14 +110,15 @@ async def _rebuild_tables():
             col_list = ", ".join(f'"{c}"' for c in col_names)
 
             # 建新表
+            new_table = f"{table}_new"
             await conn.execute(text(ddl_template))
 
             # 复制数据
-            await conn.execute(text(f'INSERT INTO run_history_new ({col_list}) SELECT {col_list} FROM {table}'))
+            await conn.execute(text(f'INSERT INTO {new_table} ({col_list}) SELECT {col_list} FROM {table}'))
 
             # 删旧表，改名
             await conn.execute(text(f"DROP TABLE {table}"))
-            await conn.execute(text(f"ALTER TABLE run_history_new RENAME TO {table}"))
+            await conn.execute(text(f"ALTER TABLE {new_table} RENAME TO {table}"))
 
 
 async def init_db():

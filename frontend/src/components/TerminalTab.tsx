@@ -24,7 +24,15 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     const xterm = new XTerm({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: 'Consolas, "Courier New", monospace',
+      // CJK 等宽字体必须排第一位：xterm 的单元格尺寸取自「首个可用字体」的行高与字宽
+      // （实测 Noto Sans Mono CJK SC = 行高 20px/em、半角 7px = 汉字 14px 正好 2 格）。
+      // 西文优先时 xterm 按西文字宽定格（JetBrains Mono 8.4px、Consolas 7.7px），
+      // 而汉字仍由回退字体按 14px 排版 → 汉字比 2 格窄 2.8/1.4px，后续所有字符逐字错位，
+      // 且行高只按西文算（14px）→ 汉字顶部被裁（"关"削掉「丷」后与"天"无异）。
+      fontFamily: '"Noto Sans Mono CJK SC", "NSimSun", Consolas, monospace',
+      // 行高按「字体自然行高 × lineHeight」取整：20 × 1.2 = 24px 单元格，
+      // 汉字顶部留 6.17px 余量（lineHeight 1.0 → 20px 格、余量 4.17px 亦不裁顶）。
+      lineHeight: 1.2,
       theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
       scrollback: 2000,
     })
@@ -35,11 +43,14 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     xtermRef.current = xterm
 
     // WS 连接（会话变量全在 URL 查询参数；建连成功后服务端首帧 ready）
+    // 尺寸必须用 fit 后的真实值：写死 80×24 会让 pty 按 80×24 布局（远端 ConPTY 按 24 行
+    // 发初始化换行、只给 80 列折行，本机 pty 甚至从未被 setwinsz 过 = 0×0），
+    // 而本端 xterm 屏幕是另一个尺寸 → 顶部空白块 + 输出行尾与下次输入挤同一行。
     const q = new URLSearchParams({
       device_id: String(deviceId ?? 0),
       shell,
-      cols: '80',
-      rows: '24',
+      cols: String(xterm.cols),
+      rows: String(xterm.rows),
     }).toString()
     const ws = new WebSocket(`${getWsBase()}/api/terminal/ws?${q}`)
     wsRef.current = ws
@@ -62,7 +73,13 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     })
 
     let closed = false
-    ws.onopen = () => {}
+    // 建连时同步一次真实尺寸：mount 时那次 fit 在订阅 onResize 之前就执行完了，
+    // 其尺寸变化没人转发 → 只靠后续 fit 不会补发（尺寸没变就不触发 onResize）。
+    ws.onopen = () => {
+      try {
+        ws.send(JSON.stringify({ type: 'resize', cols: xterm.cols, rows: xterm.rows }))
+      } catch {}
+    }
     ws.onmessage = (ev) => {
       if (closed) return
       let msg: any
@@ -123,5 +140,8 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, shell])
 
-  return <div ref={containerRef} style={{ height: '100%', padding: 8 }} />
+  // 批次 Z：内距归零 —— 终端四周留白改由容器语义选择器承担（桌面底栏 `.desktop-mode .gterm .xterm`；
+  // Web 终端页在调用处补 padding:8）。此处再留 8px 会与容器内距叠加成「上 14 / 左 20」的黑边，
+  // 且 xterm fit 插件量的是本容器的内容盒，多一层 padding 只是白占列宽。
+  return <div ref={containerRef} style={{ height: '100%' }} />
 }

@@ -34,7 +34,7 @@ export default function Terminal({ output, status, onClear }: TerminalProps) {
   useEffect(() => {
     if (!terminalRef.current) return
     const xterm = new XTerminal({
-      theme: { background: '#1e1e1e', foreground: '#d4d4d4' },
+      theme: { background: '#191a1f', foreground: '#d4d4d4' },
       fontFamily: 'Consolas, "Courier New", monospace',
       fontSize: 14,
       lineHeight: 1.2,
@@ -88,16 +88,17 @@ export default function Terminal({ output, status, onClear }: TerminalProps) {
       const parsed = JSON.parse(jsonStr.trim())
       const formatted = JSON.stringify(parsed, null, 2)
       await copyText(formatted)
-      setCopyMsg('✓ 已复制格式化 JSON')
+      setCopyMsg('已复制格式化 JSON')
     } catch {
-      setCopyMsg('✗ 输出非合法 JSON')
+      setCopyMsg('输出非合法 JSON')
     }
     setTimeout(() => setCopyMsg(''), 2500)
   }
 
+  // 外框走原型 §0 的 .out（term 底 + border + 6px + mono 11.5）
   return (
-    <div style={{ position: 'relative' }}>
-      <div ref={terminalRef} style={{ height: 400, border: '1px solid #d9d9d9', borderRadius: 6, padding: 8 }} />
+    <div className="out" style={{ position: 'relative', minHeight: 0 }}>
+      <div ref={terminalRef} style={{ height: 400, border: 'none', borderRadius: 0, padding: 0, background: 'transparent' }} />
       <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
         {copyMsg && <span style={{ color: '#d4d4d4', fontSize: 12, background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: 4 }}>{copyMsg}</span>}
         <button onClick={handleCopyJson} style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#d4d4d4', padding: '4px 8px', borderRadius: 4, cursor: 'pointer' }}>

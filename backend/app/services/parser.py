@@ -6,12 +6,24 @@ import re
 from pathlib import Path
 
 
+def _read_source(filepath: Path) -> str:
+    """读脚本源码文本：按**探测出的编码**解码（复用批次 AA 的 probe_script_text，唯一探测实现）。
+
+    此前一律 `read_text(encoding="utf-8")`：GBK 的 .bat/.ps1/.sh（Windows 目标上按系统 ANSI 存的
+    就是 GBK）直接 UnicodeDecodeError。
+    探测不出 → **ValueError 上抛**，不引入 latin-1 之类静默兜底（那正是批次 AA 刚删掉的东西）：
+    本函数的上游是 routers/script.py 的 POST /{id}/parse，已把 ValueError 转成 400。
+    """
+    from .script_text import probe_script_text
+    return probe_script_text(filepath.read_bytes())[0]
+
+
 def _parse_python(filepath: Path) -> list[dict]:
     """Extract argparse params from a Python script via AST."""
     try:
-        source = filepath.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-    except Exception:
+        tree = ast.parse(_read_source(filepath))
+    except SyntaxError:
+        # 语法错 → 没有可提取的参数（编码探测失败仍会 ValueError 上抛，不被这里吞掉）
         return []
 
     params = []
@@ -137,10 +149,7 @@ def _parse_python(filepath: Path) -> list[dict]:
 
 def _parse_shell(filepath: Path) -> list[dict]:
     """Extract params from a shell script: getopts first, then $N / ${N:-default} fallback."""
-    try:
-        source = filepath.read_text(encoding="utf-8")
-    except Exception:
-        return []
+    source = _read_source(filepath)
 
     # 1) getopts
     m = re.search(r"getopts\s+['\"]?\s*([a-zA-Z0-9:]+)\s*['\"]?", source)
@@ -184,10 +193,7 @@ def _parse_shell(filepath: Path) -> list[dict]:
 
 def _parse_batch(filepath: Path) -> list[dict]:
     """Extract positional params (%1, %2, ...) from batch files."""
-    try:
-        source = filepath.read_text(encoding="utf-8")
-    except Exception:
-        return []
+    source = _read_source(filepath)
 
     pos = set()
     for m in re.finditer(r"%(\d+)", source):

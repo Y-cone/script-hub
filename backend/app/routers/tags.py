@@ -39,7 +39,8 @@ async def create_tag(data: TagCreate, db: AsyncSession = Depends(get_db)):
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(400, f"标签已存在: {data.name}")
+        # SPEC §2.3/§6.7 v2.16：重名由后端 409 拒绝（原 400 与定稿规范不符；前端在输入行下红字提示）
+        raise HTTPException(409, f"标签已存在: {data.name}")
     await db.refresh(tag)
     return tag
 
@@ -59,7 +60,8 @@ async def update_tag(tag_id: int, data: TagUpdate, db: AsyncSession = Depends(ge
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(400, f"标签名已存在: {data.name}")
+        # SPEC §2.3/§6.7 v2.16：重名（改名撞已有名）同 409
+        raise HTTPException(409, f"标签名已存在: {data.name}")
     await db.refresh(tag)
     return tag
 

@@ -1,0 +1,36 @@
+/* 批次 R-1：无装饰窗口的四角圆角（tauri.conf.json 开 transparent 后自绘）。
+   独立成文件的原因：proto.css / desktop.css 正被并行批次改动，圆角规则单独放这里避免撞车。
+   import 位置在 main.tsx 的 App 之后 → 本层在 desktop.css / proto.css 之后生效（同优先级后者胜）。
+   仅桌面形态（.desktop-mode 存在）生效，Web 形态零影响。 */
+
+/* 窗口底：html/body 必须透明，四角才透出桌面（原值 #1e1f24 由 desktop.css 给，见该文件注释） */
+html:has(.desktop-mode),
+body:has(.desktop-mode) {
+  background: transparent !important;
+}
+
+/* 窗口内所有背景（html/body/#root）交还给 .desktop-mode 自己画，避免圆角外露出方角底色 */
+html:has(.desktop-mode),
+body:has(.desktop-mode),
+#root:has(.desktop-mode) {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+#root:has(.desktop-mode) {
+  height: 100vh;
+  background: transparent;
+}
+
+/* 自绘圆角窗口本体：圆角 + 裁掉子元素溢出（否则顶栏方角会盖住圆角） */
+.desktop-mode {
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--sh-bg, #1e1f24);
+}
+
+/* 最大化时圆角必须关掉：X11 下最大化窗口会顶到屏幕四角，留圆角会露桌面缝隙。
+   maximized 伪类在 WebKitGTK 里不可用 → 用 Tauri 的窗口尺寸事件在 JS 侧打标记（见 DesktopShell 注释）。 */
+.desktop-mode.sh-maxed {
+  border-radius: 0;
+}

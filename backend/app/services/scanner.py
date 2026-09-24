@@ -1,10 +1,12 @@
 from pathlib import Path
 from datetime import datetime
-from sqlalchemy import select, func, delete
+import logging
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.script import Script
-from ..models.run_history import RunHistory
 from ..config import get_script_root
+
+logger = logging.getLogger(__name__)
 
 EXTENSION_MAP = {
     ".py": "python",
@@ -68,12 +70,19 @@ async def scan_scripts(db: AsyncSession) -> dict:
             added += 1
 
     # Remove scripts whose files no longer exist
-    for abs_path, script in existing.items():
-        if abs_path not in disk_files:
-            # 先删关联运行历史，避免外键约束失败
-            await db.execute(delete(RunHistory).where(RunHistory.script_id == script.id))
-            await db.delete(script)
-            removed += 1
+    missing = [s for abs_path, s in existing.items() if abs_path not in disk_files]
+    # 批量删除保护闸：待删数超过阈值视为 root 异常（如 script_root_dir 被切换/抖动），
+    # 跳过全部删除，避免旧 root 下脚本及其关联数据被静默清空
+    if len(missing) > max(5, len(existing) * 0.5):
+        logger.warning(
+            f"本次扫描待删除 {len(missing)}/{len(existing)} 个脚本，超过阈值，"
+            "疑似 scripts_root 异常，跳过全部删除"
+        )
+        missing = []
+    for script in missing:
+        # 历史是审计数据：脚本删除后 run_history 保留（script_id 置 NULL，FK 已是 SET NULL）
+        await db.delete(script)
+        removed += 1
 
     await db.commit()
 

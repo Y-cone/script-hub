@@ -31,7 +31,7 @@ interface ScriptState {
   fetchScripts: () => Promise<void>
   fetchScript: (id: number) => Promise<void>
   fetchContent: (id: number) => Promise<void>
-  doScan: () => Promise<{ added: number; updated: number; removed: number }>
+  doScan: () => Promise<{ added: number; updated: number; removed: number; total: number }>
   doUpload: (file: File, subdir?: string) => Promise<void>
   parseParams: (id: number) => Promise<ParamDef[]>
   updateParams: (id: number, params: ParamDef[]) => Promise<void>

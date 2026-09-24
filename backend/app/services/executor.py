@@ -1,4 +1,6 @@
 import asyncio
+import codecs
+import shutil
 import subprocess
 import signal
 import os
@@ -29,16 +31,163 @@ def _win_abs(path: str) -> str:
     return p
 
 
-def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str,
-                   has_bash: bool = False) -> str:
-    """构造 Windows 远端执行命令。
+# V5-G（SPEC §2.4）：Shell 覆盖白名单——值 = 该平台上执行「脚本路径 + 参数」的运行器前缀。
+# 前端下拉按目标平台出候选（SHELL_BY_TYPE），此处是唯一权威校验点（非法/平台不符 → ValueError）。
+SHELL_RUNNERS: Dict[str, Dict[str, str]] = {
+    "unix": {"bash": "bash", "sh": "sh", "zsh": "zsh", "python3": "python3"},
+    "win32": {
+        "bash": "bash",
+        "cmd": "cmd /c",
+        "powershell": "powershell -NoProfile -ExecutionPolicy Bypass -File",
+        "pwsh": "pwsh -NoProfile -File",
+    },
+}
+
+
+def resolve_runner(shell: Optional[str], is_win: bool) -> Optional[str]:
+    """Shell 覆盖 → 运行器前缀；None/空 = 未指定（调用方走 category 默认分派）。"""
+    if not shell:
+        return None
+    table = SHELL_RUNNERS["win32" if is_win else "unix"]
+    if shell not in table:
+        raise ValueError(
+            f"Shell「{shell}」不适用于{'Windows' if is_win else 'Unix' } 目标"
+            f"（可选：{', '.join(table)}）"
+        )
+    return table[shell]
+
+
+# 目标 Windows 的 ANSI 代码页：cmd 的批处理解析器按它读 .bat/.cmd（不是控制台的 UTF-8）。
+# 远端不一定是简体中文——繁中 = cp950、西欧 = cp1252，用环境变量覆盖（默认 cp936）。
+WIN_ANSI_CODEC_ENV = "SCRIPTHUB_WIN_ANSI_CODEC"
+
+
+def _win_ansi_codec() -> str:
+    """目标 ANSI 代码页（每次读 env，改完不必重启进程）；非法编码名回落 cp936。"""
+    codec = os.environ.get(WIN_ANSI_CODEC_ENV) or "cp936"
+    try:
+        codecs.lookup(codec)
+        return codec
+    except LookupError:
+        logger.warning("%s=%r 不是合法编码名，回落 cp936", WIN_ANSI_CODEC_ENV, codec)
+        return "cp936"
+
+
+def _to_crlf(data: bytes) -> bytes:
+    """LF / 混合行尾 → 全部 CRLF。
+
+    真机实测（Work Laptop / Win11 26100）：cmd 的批处理解析器在「多字节字符 + 裸 LF 行尾」下
+    会失步——仓库里 LF 行尾的 cleanup.bat（中文写在 @REM 里）执行输出
+    `'M' is not recognized as an internal or external command`、退出码 9009；
+    改成 CRLF 后正常。纯 ASCII 的 LF 批处理不受影响，所以这个转换只对 .bat/.cmd 做。
+    """
+    return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+
+
+def _to_lf(data: bytes) -> bytes:
+    """CRLF / 混合行尾 → 全部 LF（Unix 侧 _to_crlf 的镜像，同款单次 replace 写法）。
+
+    真机实测（本机 Linux，2026-09）：CRLF 行尾的 .sh 跑 `bash x.sh` → `语法错误：未预期的
+    文件结束符`、exit 2；`./x.sh` → exit 127（内核把 shebang 读成 `#!/bin/bash\\r`，
+    即 `bad interpreter: /bin/bash^M`）。根因：bash 不把 `\\r` 当行尾而当一个普通字符，
+    `…; then\\r` 这类词法全被污染。
+
+    只合并 `\\r\\n` 这一个组合，**不删裸 `\\r`**：`\\r` 可以是脚本自己用的控制字符
+    （`printf 'a\\rb'` 进度条覆盖），全量删会改坏内容；`\\r` 单独成行只存在于老式 Mac 行尾，
+    这里没有这种场景。幂等：已是 LF 的内容原样返回。
+    """
+    return data.replace(b"\r\n", b"\n")
+
+
+# Unix 侧做行尾规整的后缀 = shell 家族（CRLF 会让 bash/zsh 的解析直接失败）。
+# 不扩到 .py：Python 词法器容忍 \r\n，且这里是 `python3 x.py` 而非内核直执，改了白改。
+# 更不扩到通用后缀：依赖清单里可能有二进制/压缩包，动行尾就是写坏文件。
+SHELL_SUFFIXES = (".sh", ".bash", ".zsh", ".ksh")
+
+
+def encode_script_bytes(data: bytes, is_win: bool, name: str) -> tuple[bytes, Optional[str]]:
+    """按目标平台与脚本后缀调整上传字节，返回 (payload, 警告文本|None)。
+
+    Unix 目标：**只规整行尾，绝不碰编码**（bash 按 UTF-8 读脚本，转码只会帮倒忙）。
+    shell 家族后缀（.sh/.bash/.zsh/.ksh）与「无后缀但以 `#!` 开头」的随传依赖走 _to_lf，
+    CRLF → LF；其余（.py 由 `python -X utf8` 负责、.json/二进制依赖等）原样返回。
+
+    Windows 目标：
+    - .bat / .cmd → **系统 ANSI 代码页**（默认 cp936，见 _win_ansi_codec）+ 行尾 CRLF。
+      实测：UTF-8 原样上传时 cmd 按 ANSI 解析，脚本里的中文路径/文件名落盘即乱码
+      （`mkdir "中文目录"` 造出的是 `涓枃鐩綍`）；换成 GBK 后磁盘上就是 `中文目录`。
+    - .ps1 → **UTF-8 with BOM**。实测 PS 5.1 无 BOM 时按 ANSI 读脚本：字面量 "中文测试".Length
+      读到 6 而不是 4，脚本创建的 `ps中文文件.txt` 实际落盘为乱码名；加 BOM 后长度 4、文件名正确。
+      PS 7+ 无 BOM 也能读，BOM 对两个版本都安全，所以统一加（已带 BOM 则不重复加）。
+
+    ANSI 编不下来的字符（GBK 没有的 emoji/生僻字）**不静默丢**：保留 UTF-8 原文字节并返回
+    显式警告，由调用方写进运行日志/输出——宁可让用户看到告警，也不写出一个坏文件。
+    """
+    suffix = Path(name).suffix.lower()
+    if not is_win:
+        # Unix 侧只规整行尾，编码一律不碰；裸 \r 保留（见 _to_lf）
+        if suffix in SHELL_SUFFIXES or data.startswith(b"#!"):
+            return _to_lf(data), None
+        return data, None
+    if suffix in (".bat", ".cmd"):
+        if data.startswith(codecs.BOM_UTF8):
+            # cmd 不认 BOM：留着会被当成第一行命令的一部分（实测报错形如 '锘?@echo' 不是内部命令）
+            data = data[len(codecs.BOM_UTF8):]
+        payload = _to_crlf(data)
+        codec = _win_ansi_codec()
+        try:
+            text = payload.decode("utf-8")
+        except UnicodeDecodeError:
+            return payload, (
+                f"[警告] {name} 不是合法 UTF-8，无法转成目标 ANSI({codec})，已原样上传——"
+                f"cmd 仍会按 ANSI 解析，中文可能乱码。")
+        try:
+            return text.encode(codec), None
+        except UnicodeEncodeError as e:
+            return payload, (
+                f"[警告] {name} 含 {codec} 无法表示的字符（第 {e.start + 1} 个字符处），"
+                f"已按 UTF-8 原样上传（行尾已转 CRLF）——Windows 端中文/路径可能显示异常。"
+                f"目标机代码页不是简体中文时，请用环境变量 {WIN_ANSI_CODEC_ENV}=cp950/cp1252 指定。")
+    if suffix == ".ps1" and not data.startswith(codecs.BOM_UTF8):
+        return codecs.BOM_UTF8 + data, None
+    return data, None
+
+
+def put_script_encoded(sftp, local_path, remote_path: str, is_win: bool) -> Optional[str]:
+    """读本地脚本 → 按目标平台转码 → 写远端（手动执行 / 定时下放共用这一条路，勿复制转码逻辑）。
+
+    返回警告文本（无警告 = None），调用方负责把它带进运行日志/执行输出。
+    """
+    with open(local_path, "rb") as f:
+        raw = f.read()
+    payload, warning = encode_script_bytes(raw, is_win, str(remote_path))
+    fh = sftp.open(remote_path, "wb")
+    try:
+        fh.write(payload)
+    finally:
+        fh.close()
+    if warning:
+        logger.warning("远端 %s: %s", remote_path, warning)
+    return warning
+
+
+def win_script_cmd(category: str, remote_script: str, arg_str: str, remote_script_dir: str,
+                   has_bash: bool = False, shell: Optional[str] = None) -> str:
+    """构造 Windows 远端执行命令（**手动执行与定时下放共用的唯一分派点**）。
 
     原则（PRD V3 风险表）：
     - .py 用 python（非 py launcher）并加 -X utf8 输出 UTF-8（避免 cmd/chcp 嵌套引号坑）
     - .bat 必须显式 cmd /c（OpenSSH 默认 shell 非 cmd）；路径假定无空格（脚本短名）
+    - .bat/.ps1 的**编码在 SFTP 上传时按目标平台转码**（见 encode_script_bytes），
+      这里**不再 chcp 65001**：chcp 影响的是批处理解析器读文件用的代码页（实测：
+      同一份 UTF-8 .bat 有 chcp 时中文目录名正确、去掉就变乱码；反过来对 ANSI 编码的
+      .bat 加 chcp 65001 会把它当 UTF-8 解析而乱码）——编码与 chcp 必须二选一，选编码。
     - .ps1 显式 powershell -ExecutionPolicy Bypass -File
     - .sh 有 bash（Git Bash/MSYS2/WSL）则用 `bash` 执行；无则显式拒绝提示
     - cd 用 cd /d（跨盘符）
+
+    定时下放（sched_delegate.SchtasksManager）复用本函数的输出构造 schtasks /TR——两处各写一套
+    「扩展名 → 解释器」映射就是下一个 bug（曾经的 `.bat` 被拼成 `python xxx.bat`）。
     """
     if category == "shell":
         if has_bash:
@@ -52,8 +201,19 @@ def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_scrip
                 "请安装 Git Bash/MSYS2/WSL，或改用 .bat/.ps1/.py。 & exit /b 1\"")
     rs = _win_abs(remote_script)
     rdir = _win_abs(remote_script_dir)
+    # V5-G（SPEC §2.4）：显式 Shell 覆盖优先于 category 默认分派
+    if shell:
+        runner = resolve_runner(shell, True)
+        if shell == "bash" and not has_bash:
+            return ("cmd /c \"echo [边界] 指定用 bash 执行，但目标 Windows 未检测到 Bash。"
+                    "请安装 Git Bash/MSYS2/WSL，或改用 cmd/powershell。 & exit /b 1\"")
+        inner = f"{runner} \"{rs}\"{' ' + arg_str if arg_str else ''}"
+        # chcp 65001 只留给 bash 分支（.sh 一律保持 UTF-8 上传，chcp 仅影响控制台回显）；
+        # cmd/powershell/pwsh/python 都按文件自身编码读脚本，65001 会让 ANSI 编码的 .bat 乱码
+        pre = "chcp 65001 >nul && " if shell == "bash" else ""
+        return f"cmd /c \"{pre}cd /d {rdir} && {inner}\""
     if category == "bat":
-        inner = f"chcp 65001 >nul && call \"{rs}\"{' ' + arg_str if arg_str else ''}"
+        inner = f"call \"{rs}\"{' ' + arg_str if arg_str else ''}"
         return f"cmd /c \"cd /d {rdir} && {inner}\""
     if category == "powershell":
         ps = f"powershell -NoProfile -ExecutionPolicy Bypass -File \"{rs}\"{' ' + arg_str if arg_str else ''}"
@@ -63,12 +223,30 @@ def _build_win_cmd(category: str, remote_script: str, arg_str: str, remote_scrip
     return f"cmd /c \"cd /d {rdir} && {py}\""
 
 
+# Unix 目标的 category 默认分派（手动执行与 crontab 下放共用的唯一映射；shell 覆盖优先）
+UNIX_CATEGORY_RUNNERS = {"python": "python3", "shell": "bash", "powershell": "pwsh", "bat": "bash"}
+
+
+def unix_script_cmd(category: str, remote_script: str, arg_str: str = "",
+                    shell: Optional[str] = None) -> str:
+    """Unix 目标：运行器 + 脚本路径 + 参数（**手动执行与 crontab 下放共用的唯一分派点**）。
+
+    cron 直接执行脚本文件路径会假设「脚本自己可执行」（+x / shebang）——.sh/.py 没有时
+    cron 静默失败，与 Windows 侧 `.bat` 被拼成 `python xxx.bat` 是同一类事故。
+    """
+    runner = resolve_runner(shell, False) or UNIX_CATEGORY_RUNNERS.get(category, "bash")
+    return f"{runner} {remote_script}{' ' + arg_str if arg_str else ''}"
+
+
 class ScriptExecutor:
     """脚本执行引擎"""
     
     def __init__(self):
         self.running_processes: Dict[int, asyncio.subprocess.Process] = {}
         self.running_remote: Dict[int, asyncio.Event] = {}  # 远程执行的取消事件
+        # 本机执行的取消标志（与远端 cancel_event 对称：kill_process 置位 → 执行体据此落 killed；
+        # 不能用 returncode==-15 判 killed，脚本自己 kill -TERM $$ 也是 -15）
+        self.local_cancelled: set[int] = set()
         # 确保日志目录存在（用当前用户权限）
         try:
             RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -107,7 +285,8 @@ class ScriptExecutor:
         parameters: Dict[str, Any],
         working_dir: Optional[str] = None,
         env_vars: Optional[Dict[str, str]] = None,
-        timeout: int = 0
+        timeout: int = 0,
+        shell: Optional[str] = None,
     ):
         """执行脚本（后台任务，不阻塞API）"""
         collected_output = ""
@@ -116,7 +295,7 @@ class ScriptExecutor:
         output_file = None
         
         # 构建命令
-        command = self._build_command(script, parameters)
+        command = self._build_command(script, parameters, shell=shell)
         
         # 准备环境变量
         env = os.environ.copy()
@@ -158,7 +337,7 @@ class ScriptExecutor:
             self._write_log(output_file, collected_output, mode='w')
             
             # 并行读取 stdout 和 stderr
-            async def read_stream(stream, is_stderr=False):
+            async def read_stream(stream):
                 nonlocal collected_output
                 while True:
                     line = await stream.readline()
@@ -182,14 +361,22 @@ class ScriptExecutor:
                 await asyncio.wait_for(
                     asyncio.gather(
                         read_stream(process.stdout),
-                        read_stream(process.stderr, is_stderr=True)
+                        read_stream(process.stderr)
                     ),
                     timeout=timeout if timeout > 0 else None
                 )
                 await process.wait()
-                
-                exit_code = process.returncode if process.returncode is not None else 0
-                status = "success" if exit_code == 0 else "failed"
+
+                if run_history_id in self.local_cancelled:
+                    # 用户点了「终止」：标志优先于退出码（被 SIGTERM 杀 → returncode=-15，不能当 failed）
+                    exit_code = -1
+                    status = "killed"
+                    kill_msg = "\n[已终止] 本地执行被终止"
+                    collected_output += kill_msg
+                    self._write_log(output_file, kill_msg)
+                else:
+                    exit_code = process.returncode if process.returncode is not None else 0
+                    status = "success" if exit_code == 0 else "failed"
                 
             except asyncio.TimeoutError:
                 await self._kill_process_tree(process)
@@ -215,6 +402,7 @@ class ScriptExecutor:
             
         finally:
             self.running_processes.pop(run_history_id, None)
+            self.local_cancelled.discard(run_history_id)
         
         # 最终写回（DB存储尾部1000行）
         lines = collected_output.split('\n')
@@ -256,6 +444,7 @@ class ScriptExecutor:
             return True
         process = self.running_processes.get(run_id)
         if process:
+            self.local_cancelled.add(run_id)  # 先置位再杀：执行体据此落 killed（对称远端 event.set()）
             await self._kill_process_tree(process)
             return True
         return False
@@ -288,10 +477,16 @@ class ScriptExecutor:
         except Exception as e:
             logger.error(f"终止进程失败: {e}")
     
-    def _build_command(self, script: Script, parameters: Dict[str, Any]) -> str:
-        """构建执行命令（本机）"""
-        if script.category == "python":
-            cmd = f"python {script.path}"
+    def _build_command(self, script: Script, parameters: Dict[str, Any],
+                       shell: Optional[str] = None) -> str:
+        """构建执行命令（本机）。shell 指定时覆盖 category 默认解释器（SPEC §2.4）。"""
+        runner = resolve_runner(shell, sys.platform == "win32")
+        if runner:
+            cmd = f"{runner} {script.path}"
+        elif script.category == "python":
+            # 本机：优先 python3（多数 Linux 无 python 别名；此前一律 exit 127），回退 python（Windows）
+            py = shutil.which("python3") or shutil.which("python") or "python"
+            cmd = f"{py} {script.path}"
         elif script.category == "shell":
             cmd = f"bash {script.path}"
         elif script.category == "bat":
@@ -321,6 +516,7 @@ class ScriptExecutor:
         run_history_id: int,
         parameters: Dict[str, Any],
         timeout: int = 0,
+        shell: Optional[str] = None,
     ):
         """远程执行脚本：SFTP 上传到远端 /tmp/script_hub/ 后执行，输出逐行回传 DB。
 
@@ -374,8 +570,8 @@ class ScriptExecutor:
         try:
             client = await pool.get(device)
             # 探测远端平台（win32/unix），决定命令构造/目录/清理/编码
-            from ..services.ssh_service import detect_platform
-            is_win = (await detect_platform(device)) == "win32"
+            from ..services.ssh_service import is_win_device
+            is_win = await is_win_device(device)
             if is_win:
                 # Windows：SFTP 传相对路径（无前导 / → OpenSSH sftp 落用户主目录）；cmd 用 %USERPROFILE% 定位
                 # (ponytail: 避免 C:/Windows/Temp 权限问题；强依赖 %USERPROFILE% 环境变量)
@@ -396,6 +592,10 @@ class ScriptExecutor:
                 await self._update_db(run_history_id, output=db_out)
 
             # SFTP 上传主脚本 + 依赖（保留相对目录结构；目录递归创建，兼容 win 相对 home 路径）
+            # 按目标平台转码（Windows: .bat/.cmd→ANSI+CRLF、.ps1→UTF-8 BOM；
+            # Unix: shell 脚本 CRLF→LF，其余原样）
+            enc_warnings: list[str] = []
+
             def _upload():
                 sftp = client.open_sftp()
 
@@ -426,7 +626,9 @@ class ScriptExecutor:
 
                 # 上传主脚本
                 _mkpath(script.relative_path)
-                sftp.put(script.path, remote_script)
+                warn = put_script_encoded(sftp, script.path, remote_script, is_win)
+                if warn:
+                    enc_warnings.append(warn)
 
                 # 上传依赖清单文件
                 imported_deps = []
@@ -436,11 +638,20 @@ class ScriptExecutor:
                         continue
                     dst = f"{remote_dir}/{dep}"
                     _mkpath(dep)
-                    sftp.put(str(src), dst)
+                    warn = put_script_encoded(sftp, str(src), dst, is_win)
+                    if warn:
+                        enc_warnings.append(warn)
                     imported_deps.append(dep)
                 sftp.close()
                 return imported_deps
             imported_deps = await asyncio.to_thread(_upload)
+
+            if enc_warnings:
+                # 转码告警必须让用户看见（GBK 表达不了的字符等）：写日志 + 进执行输出
+                warn_text = "".join(f"{w}\n" for w in enc_warnings)
+                collected_output += warn_text
+                self._write_log(output_file, warn_text)
+                await self._update_db(run_history_id, output=collected_output)
 
             if imported_deps:
                 dep_line = ", ".join(imported_deps)
@@ -465,14 +676,11 @@ class ScriptExecutor:
                 if script.category == "shell":
                     from ..services.ssh_service import detect_has_bash
                     has_bash = await detect_has_bash(device)
-                full_cmd = _build_win_cmd(script.category, remote_script, arg_str, remote_script_dir,
-                                          has_bash=has_bash)
+                full_cmd = win_script_cmd(script.category, remote_script, arg_str, remote_script_dir,
+                                          has_bash=has_bash, shell=shell)
             else:
                 # Unix 分支（既有逻辑）
-                runner = {
-                    "python": "python3", "shell": "bash", "powershell": "pwsh", "bat": "bash"
-                }.get(script.category, "bash")
-                remote_cmd = f"{runner} {remote_script} {arg_str}".strip()
+                remote_cmd = unix_script_cmd(script.category, remote_script, arg_str, shell)
                 full_cmd = f"mkdir -p {remote_script_dir} && cd {remote_script_dir} && {remote_cmd}"
 
             # 执行（输出实时回调写 DB），拿到退出码；cd 至脚本所在目录使相对引用依赖正确
@@ -550,3 +758,43 @@ class ScriptExecutor:
 
 # 全局执行器实例
 executor = ScriptExecutor()
+
+
+# 后台执行任务强引用：asyncio 只对 Task 持**弱**引用，`create_task(_run())` 扔完不存引用时，
+# 任务可能在跑的中途被 GC 掉（官方文档明示的坑）→ 状态永远停在 running，且没人再去写终态。
+# 这里持有引用直到任务结束（done_callback 里丢弃）。
+_BACKGROUND_TASKS: set = set()
+
+
+def spawn_background(coro) -> asyncio.Task:
+    """启动后台执行任务并持有强引用（执行完成的状态落库在 executor 内，与本函数无关）。"""
+    task = asyncio.create_task(coro)
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return task
+
+
+async def fail_stale_running(reason: str = "[中断] 服务重启，本次执行未正常结束") -> int:
+    """启动时收尾上一次进程留下的 running 记录（返回处理条数）。
+
+    running 只可能由「持有该次执行的进程内的 asyncio 任务」推进到终态；进程一旦重启/崩溃，
+    那个任务就没了，记录会永久停在 running —— 与前端是否连着 websocket 无关。启动时统一落终态，
+    保证「没有任何前端连接时记录也必须到终态」这个不变量。
+    """
+    async with async_session() as db:
+        rows = (await db.execute(
+            select(RunHistory).where(RunHistory.status == "running")
+        )).scalars().all()
+        if not rows:
+            return 0
+        now = datetime.now()
+        for rh in rows:
+            rh.status = "failed"
+            rh.exit_code = -1
+            rh.finished_at = now
+            if rh.started_at:
+                rh.duration = (now - rh.started_at).total_seconds()
+            rh.output = (rh.output or "") + f"\n{reason}\n"
+        await db.commit()
+    logger.warning("启动收尾：%d 条 running 记录已置为 failed", len(rows))
+    return len(rows)

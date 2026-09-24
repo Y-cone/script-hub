@@ -7,7 +7,7 @@
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "",
-    "beforeBuildCommand": "npm run build"
+    "beforeBuildCommand": "npm run build && bash ../backend/build_sidecar.sh"
   },
   "app": {
     "windows": [
@@ -17,7 +17,10 @@
         "height": 800,
         "minWidth": 960,
         "minHeight": 600,
-        "resizable": true
+        "resizable": true,
+        "decorations": false,
+        "transparent": true,
+        "visible": false
       }
     ],
     "security": {

@@ -1,17 +1,21 @@
 from fastapi import APIRouter, Depends, HTTPException
 import json
 import os
+from datetime import datetime, timedelta
+from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.schedule import Schedule
 from ..models.script import Script
 from ..models.device import Device
+from ..models.run_history import RunHistory
 from ..schemas.schedule import ScheduleOut, ScheduleCreate, ScheduleUpdate, ScheduleListOut
 from ..services.scheduler_service import scheduler_service, _run_scheduled
 from ..services.sched_delegate import (
     manager_for, deploy_script, mark_dirty, map_cron_to_schtasks, SchtasksManager)
-from ..services.ssh_service import pool as ssh_pool
+from ..services.ssh_service import pool as ssh_pool, is_win_device
 
 # V5-E：每调度的 cron.log 拉取偏移（内存态；重启后从 0 重拉全量一次，可接受）
 _pull_offset: dict[int, int] = {}
@@ -34,14 +38,16 @@ async def _sync_device_schedule(db: AsyncSession, sched: Schedule):
     if not script:
         raise HTTPException(404, "脚本不存在")
 
-    mgr = manager_for(device, await ssh_pool.get(device))
+    # 平台判据唯一入口（实时探测，与手动执行同一判据）；一次算好，管理器与转码共用同一个值
+    is_win = await is_win_device(device)
+    mgr = manager_for(device, await ssh_pool.get(device), is_win)
     # schtasks 受限映射预检（不支持提前报错，不产生半写状态）
     if isinstance(mgr, SchtasksManager) and map_cron_to_schtasks(sched.cron_expr) is None:
         raise HTTPException(400, f"cron 表达式 '{sched.cron_expr}' 无法映射为 Windows 计划任务"
                                  "（仅支持每天/每周形态），请改用本工具内执行")
 
     client = await ssh_pool.get(device)
-    remote_exe = await deploy_script(script, device, client)
+    remote_exe = await deploy_script(script, device, client, is_win)
     try:
         p = json.loads(sched.parameters or "{}")
     except Exception:
@@ -66,7 +72,7 @@ async def _remove_device_schedule_at(db: AsyncSession, device_id: int | None, sc
         return
     try:
         client = await ssh_pool.get(device)
-        await manager_for(device, client).remove(schedule_id)
+        await manager_for(device, client, await is_win_device(device)).remove(schedule_id)
     except Exception as e:
         # 设备不可达时不阻塞本地操作（下次对账会发现漂移）
         import logging
@@ -98,20 +104,87 @@ async def _reload_schedule(db: AsyncSession, schedule_id: int):
 @router.get("", response_model=ScheduleListOut)
 async def list_schedules(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Schedule, Script.name, Script.relative_path, Device.name)
+        select(Schedule, Script.name, Script.relative_path, Device.name, Device.type)
         .join(Script, Script.id == Schedule.script_id, isouter=True)
         .join(Device, Device.id == Schedule.device_id, isouter=True)
         .order_by(Schedule.id)
     )
     rows = list(result.all())
     items = []
-    for sched, script_name, rel_path, device_name in rows:
+    for sched, script_name, rel_path, device_name, device_type in rows:
         sched.script_name = script_name
         # script_path = 脚本所在目录（不含文件名）；根目录显示 "/"
         sched.script_path = os.path.dirname(rel_path) or "/" if rel_path else None
         sched.device_name = device_name
+        # V5-G（SPEC §7.2-#3）：next_run_at / last_run / delegated / device_type
+        sched.delegated = sched.exec_location == "device"
+        sched.device_type = device_type
+        sched.next_run_at = _next_run_at(sched)
+        lr = (await db.execute(
+            select(RunHistory)
+            .where(RunHistory.schedule_id == sched.id)
+            .order_by(RunHistory.started_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if lr:
+            from ..schemas.brief import LastRunBrief
+            sched.last_run = LastRunBrief(
+                status=lr.status, exit_code=lr.exit_code,
+                started_at=lr.started_at.isoformat() if lr.started_at else None,
+                duration=lr.duration,
+            )
         items.append(sched)
     return ScheduleListOut(items=items, total=len(items))
+
+
+def _next_run_at(sched) -> datetime | None:
+    """下次触发时间（cron → CronTrigger；interval → now+interval）。停用/下放返回 None。"""
+    if not sched.enabled:
+        return None
+    try:
+        if sched.cron_expr:
+            from apscheduler.triggers.cron import CronTrigger
+            return CronTrigger.from_crontab(sched.cron_expr).get_next_fire_time(None, datetime.now())
+        if sched.interval_seconds:
+            return datetime.now() + timedelta(seconds=sched.interval_seconds)
+    except Exception:
+        return None
+    return None
+
+
+class _PreviewReq(BaseModel):
+    cron_expr: Optional[str] = None
+    interval_seconds: Optional[int] = None
+
+
+@router.post("/preview")
+async def preview_schedule(data: _PreviewReq):
+    """SPEC §7.1：新建任务 Modal 的「下次触发」实时预览（任务尚未创建）。
+
+    复用 APScheduler CronTrigger（与列表 next_run_at 同一算法，§7.8 验收一致）。
+    """
+    if data.interval_seconds:
+        now = datetime.now()
+        return {"valid": True, "next_runs": [
+            (now + timedelta(seconds=data.interval_seconds * i)).isoformat()
+            for i in range(1, 4)
+        ]}
+    if not data.cron_expr:
+        return {"valid": False, "next_runs": [], "error": "必须提供 cron 表达式或间隔秒数"}
+    try:
+        from apscheduler.triggers.cron import CronTrigger
+        trig = CronTrigger.from_crontab(data.cron_expr)
+    except Exception as e:
+        return {"valid": False, "next_runs": [], "error": f"无效的 cron 表达式: {e}"}
+    now = datetime.now()
+    runs = []
+    t = trig.get_next_fire_time(None, now)
+    for _ in range(3):
+        if t is None:
+            break
+        runs.append(t.isoformat())
+        t = trig.get_next_fire_time(t, t + timedelta(seconds=1))
+    return {"valid": True, "next_runs": runs}
 
 
 @router.post("", response_model=ScheduleOut)
@@ -222,7 +295,7 @@ async def audit_delegate(schedule_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "目标设备不存在")
     try:
         client = await ssh_pool.get(device)
-        remote = await manager_for(device, client).audit()
+        remote = await manager_for(device, client, await is_win_device(device)).audit()
     except Exception as e:
         raise HTTPException(502, f"设备不可达: {e}")
     expected = "ok" if sched.enabled else "disabled"

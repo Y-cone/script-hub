@@ -1,26 +1,59 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select, func, or_, update
+from sqlalchemy import select, func, or_, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models.script import Script
+from ..models.device import Device
 from ..models.tag import ScriptTag, Tag
 from ..models.run_history import RunHistory
 from ..config import get_script_root
 from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
+from ..schemas.brief import LastRunBrief
 from ..schemas.tag import UploadResult
 from ..services.scanner import scan_scripts, SUPPORTED_EXTENSIONS
 from ..services.envcheck import check_environment
+from ..services.ssh_service import fresh_entry
 from ..services.parser import parse_script
+from ..services.script_text import (   # noqa: F401 — probe_script_text/_encoding_label 亦为本模块导出名
+    _encoding_candidates, _encoding_label, preserve_eol, probe_script_text)
 from ..services.depscan import scan_deps
 from pathlib import Path
 from datetime import datetime
+import codecs
 import json
+import os
 import shutil
+import tempfile
 import io
 import zipfile
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
+
+
+def atomic_write_bytes(path: Path, data: bytes):
+    """脚本文件唯一的写盘路径：同目录临时文件 → fsync → os.replace（原子提交）。
+
+    直接 `path.write_bytes(data)` 是整文件覆盖，写到一半崩溃/断电就把原文件截断，原内容没了
+    （上传覆盖同名脚本、编辑保存都是这条路径）。同目录是硬要求：跨设备 os.replace 会抛
+    OSError(EXDEV)。临时文件用 mkstemp（唯一名，同一目标并发写不互踩），异常路径 finally 清理。
+    """
+    path = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())   # 不 fsync 可能出现「rename 已生效、内容还在页缓存」→ 崩了就空文件
+        if path.exists():
+            # 覆盖已有文件时保留原权限位：不然 0600 会把 0644/0755 覆盖掉（可执行位丢失）
+            os.chmod(tmp, path.stat().st_mode & 0o777)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)   # 成功时已被 replace 移走（不存在）；失败路径清掉，不留 .tmp 垃圾
+        except FileNotFoundError:
+            pass
 
 # 依赖清单敏感文件判定（信任边界：密钥/凭据/口令类禁止随传）
 _SENSITIVE_EXT = {".env", ".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".crt", ".cer", ".p7b", ".pub"}
@@ -88,6 +121,32 @@ def _serialize_list(items, tag_map: dict[int, list[str]]) -> list[dict]:
     return [_dict_with_tags(s, tag_map.get(s.id, [])) for s in items]
 
 
+async def _last_run_map(db: AsyncSession, script_ids: list[int]) -> dict[int, "LastRunBrief"]:
+    """SPEC §7.2-#1：批量取每个脚本的最近一次运行（单次聚合查询，N+1 禁止）。"""
+    if not script_ids:
+        return {}
+    from ..models.run_history import RunHistory
+    from ..schemas.brief import LastRunBrief
+    subq = (
+        select(RunHistory.script_id, func.max(RunHistory.id).label("mid"))
+        .where(RunHistory.script_id.in_(script_ids))
+        .group_by(RunHistory.script_id)
+        .subquery()
+    )
+    rows = (await db.execute(
+        select(RunHistory)
+        .join(subq, RunHistory.id == subq.c.mid)
+    )).scalars().all()
+    return {
+        r.script_id: LastRunBrief(  # type: ignore[dict-item]  # script_id 实际非空（按 script_id 分组）
+            status=r.status, exit_code=r.exit_code,
+            started_at=r.started_at.isoformat() if r.started_at else None,
+            duration=r.duration,
+        )
+        for r in rows
+    }
+
+
 @router.get("", response_model=ScriptListOut)
 async def list_scripts(
     page: int = Query(1, ge=1),
@@ -133,7 +192,15 @@ async def list_scripts(
     items = list(result.scalars().all())
 
     tag_map = await _load_tags(db, [s.id for s in items])
-    return ScriptListOut(items=_serialize_list(items, tag_map), total=total, page=page, page_size=page_size)
+    items_out = _serialize_list(items, tag_map)
+    # V5-G（SPEC §7.2-#1）：last_run 批量注入（单次聚合查询）
+    last_run_map = await _last_run_map(db, [s.id for s in items])
+    for it in items_out:
+        lr = last_run_map.get(it["id"])
+        if lr:
+            it["last_run"] = lr.model_dump()
+    return ScriptListOut(items=[ScriptOut(**it) for it in items_out],
+                         total=total, page=page, page_size=page_size)
 
 
 @router.get("/dirs")
@@ -252,7 +319,7 @@ async def import_script(
                     if not dest.is_relative_to(root.resolve()):
                         continue
                     dest.parent.mkdir(parents=True, exist_ok=True)
-                    dest.write_bytes(data)
+                    atomic_write_bytes(dest, data)
                     imported.append(str(Path(n)))
     except zipfile.BadZipFile:
         raise HTTPException(400, "ZIP 文件损坏")
@@ -294,10 +361,10 @@ async def import_script(
                     db.add(t)
                     await db.flush()
                 new_ids.append(t.id)
-            # 替换主脚本的标签
-            old = await db.execute(select(ScriptTag).where(ScriptTag.script_id == first_id))
-            for st in old.scalars().all():
-                await db.delete(st)
+            # 替换主脚本的标签（同一唯一键上先删后插，必须语句级 DELETE + flush，
+            # 否则重复导入已有标签的脚本会撞 uq_script_tag）
+            await db.execute(delete(ScriptTag).where(ScriptTag.script_id == first_id))
+            await db.flush()
             for tid in set(new_ids):
                 db.add(ScriptTag(script_id=first_id, tag_id=tid))
 
@@ -477,7 +544,7 @@ async def upload_script(
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(400, "文件超过 10MB 限制")
 
-    dest.write_bytes(content)
+    atomic_write_bytes(dest, content)
 
     # 自动扫描
     result = await scan_scripts(db)
@@ -490,18 +557,34 @@ async def set_script_tags(script_id: int, data: TagsUpdate, db: AsyncSession = D
     if not script:
         raise HTTPException(404, "Script not found")
 
-    # 删除旧的标签关联
-    old = await db.execute(select(ScriptTag).where(ScriptTag.script_id == script_id))
-    for st in old.scalars().all():
-        await db.delete(st)
+    tag_ids = set(data.tag_ids)
+
+    # 入参校验：不存在的 tag_id 走资源缺失语义（404 Tag not found），不得落成 500
+    if tag_ids:
+        found = (await db.execute(select(Tag.id).where(Tag.id.in_(tag_ids)))).scalars().all()
+        missing = sorted(tag_ids - set(found))
+        if missing:
+            raise HTTPException(404, f"Tag not found: {missing}")
+
+    # 删除旧的标签关联：必须走语句级 DELETE 并 flush——ORM 的 db.delete(成员)
+    # 只是标记删除，flush 时 INSERT 先于 DELETE 发出，同一 (script_id, tag_id)
+    # 上会撞 uq_script_tag → 再次保存含旧标签的集合必 500
+    await db.execute(delete(ScriptTag).where(ScriptTag.script_id == script_id))
+    await db.flush()
 
     # 添加新的
-    for tag_id in set(data.tag_ids):
+    for tag_id in tag_ids:
         db.add(ScriptTag(script_id=script_id, tag_id=tag_id))
 
     await db.commit()
     tag_map = await _load_tags(db, [script.id])
     return {"script_id": script_id, "tags": tag_map.get(script.id, [])}
+
+
+# ── 脚本源码的文本编码：读取探测 + 按原编码写回（堵「静默乱码 → 写坏源文件」）────────────
+# 实现搬到了 services/script_text.py（parser 也要按探测编码读源码，service 不能反过来 import
+# router）；顶部导入，同时保持既有引用路径（含 tests 里的
+# `from app.routers.script import probe_script_text`）不变。编码规则见该模块 docstring。
 
 
 @router.get("/{script_id}/content")
@@ -516,12 +599,19 @@ async def get_script_content(script_id: int, db: AsyncSession = Depends(get_db))
     if not p.exists():
         raise HTTPException(404, "Script file not found on disk")
 
+    raw = p.read_bytes()
     try:
-        content = p.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        content = p.read_text(encoding="latin-1")
+        content, encoding = probe_script_text(raw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
-    return {"content": content, "language": script.category}
+    out = {"content": content, "language": script.category, "encoding": encoding}
+    if encoding not in ("utf-8", "utf-8-sig"):
+        out["encoding_warning"] = (
+            f"该文件不是 UTF-8，当前按 {_encoding_label(encoding)} 解读；"
+            f"保存时将按同一编码写回，不会改动文件编码。"
+        )
+    return out
 
 
 @router.put("/{script_id}/content")
@@ -530,18 +620,66 @@ async def save_script_content(
     payload: dict,
     db: AsyncSession = Depends(get_db),
 ):
-    """保存脚本内容：写入磁盘文件 + 触发重扫更新 DB 元数据"""
+    """保存脚本内容：写入磁盘文件 + 触发重扫更新 DB 元数据
+
+    编码规则（配合 get_script_content 的探测，堵「乱码写回=源文件永久损坏」）：
+    - 请求未带 encoding → 按磁盘现状探测出的编码写回（默认路径：往返字节不变）
+    - 请求带 encoding → 显式覆盖（确需转码时用；响应会说明编码已变更）
+    - 内容含目标编码表达不了的字符 → 400 明确报错，绝不用 `?` 静默替换
+    """
     result = await db.execute(select(Script).where(Script.id == script_id))
     script = result.scalar_one_or_none()
     if not script:
         raise HTTPException(404, "Script not found")
 
     content = payload.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(400, "content 必须是字符串")
+
     p = Path(script.path)
+    raw = p.read_bytes() if p.exists() else b""
+
+    requested = payload.get("encoding")
+    disk_encoding = None
+    if requested:
+        try:
+            codecs.lookup(requested)   # 非法编码名 → 400（不落 500）
+        except LookupError:
+            raise HTTPException(400, f"未知编码: {requested}")
+        encoding = requested
+        if raw:
+            try:
+                disk_encoding = probe_script_text(raw)[1]
+            except ValueError:
+                disk_encoding = None
+    else:
+        try:
+            # 原文件的编码即写回编码（服务端按磁盘现状判定，不依赖前端记忆）
+            _, encoding = probe_script_text(raw) if raw else ("", "utf-8")
+            disk_encoding = encoding
+        except ValueError as e:
+            # 原文件自身就解不出（二进制/未知编码）：默认拒绝写，需显式指定 encoding 才放行
+            raise HTTPException(400, f"无法确定原文件编码（{e}）；确需覆盖请显式传 encoding")
+
     try:
-        p.write_text(content, encoding="utf-8")
-    except OSError as e:
-        raise HTTPException(500, f"写入文件失败: {e}")
+        data = content.encode(encoding)
+    except UnicodeEncodeError as e:
+        raise HTTPException(400, (
+            f"内容含 {_encoding_label(encoding)} 无法表示的字符"
+            f"（{e.object[e.start:e.end]!r}，第 {e.start + 1} 个字符）——保存会丢字符，已拒绝。"
+            f"请删掉该字符，或显式传 encoding=utf-8 把文件转存为 UTF-8。"
+        ))
+
+    # 行尾保全（批次 AJ）：编辑框（textarea）会把 CRLF 规范化成 LF，写盘前按**磁盘原文件**
+    # 的行尾还原（磁盘上是 LF 就不动）。客户端不必记行尾状态，多端共用同一语义。
+    data = preserve_eol(raw, data)
+
+    # 字节相同则跳过写盘（保持原优化）；写盘走原子提交，覆盖到一半崩溃不会截断原文件
+    if not (p.exists() and raw == data):
+        try:
+            atomic_write_bytes(p, data)
+        except OSError as e:
+            raise HTTPException(500, f"写入文件失败: {e}")
 
     # V5-E：脚本被编辑 → 标记脏（下放任务的远端副本下次部署时增量同步）
     from ..services.sched_delegate import mark_dirty
@@ -549,22 +687,73 @@ async def save_script_content(
 
     # 重扫更新 DB 中的元数据（名称/路径/更新时间等）
     await scan_scripts(db)
-    return {"message": "已保存", "language": script.category}
+    out = {"message": "已保存", "language": script.category, "encoding": encoding}
+    if disk_encoding and disk_encoding != encoding:
+        out["encoding_warning"] = (
+            f"已按 {_encoding_label(encoding)} 重写，原文件编码为 {_encoding_label(disk_encoding)}（编码已变更）"
+        )
+    return out
 
 
 @router.get("/{script_id}/env-check")
-async def env_check(script_id: int, db: AsyncSession = Depends(get_db)):
-    """手动触发某脚本的环境检测（平台兼容 + 运行时版本）"""
+async def env_check(script_id: int, device_id: int | None = None,
+                    db: AsyncSession = Depends(get_db)):
+    """手动触发某脚本的环境检测（平台兼容 + 运行时版本）。
+
+    `device_id`（query，可选）= **判定对象**：
+      · 不传 / null → **Server 本机**（与 run.py 的本机执行前置同一判据，行为与旧版一致）；
+      · 传了 → **目标设备**：用它的 probe 缓存（ssh_service.fresh_entry：切设备自动重探 /
+        「测试连接」/ 本机信息页探测写入的那一份）构造远端判据。此前不管当前设备是谁都探
+        Server 本机 → 在 Windows 设备的脚本工作区点「环境检测」永远报 unix（批次 AO 修的缺口）。
+
+    ⚠️ **本端点不现探**：一次 remote_probe 最长 5 条命令 × 10s（不可达设备 60s 级），一个按钮
+    等不起，而且会把整页卡住。缓存缺失/过期 → 明确回「无探测结论」（`conclusive: false` + note），
+    **不判红、也不拿 Server 本机冒充目标机**（那正是本批次要修的错判）。刷新结论的入口已经存在：
+    设备页「测试连接」/ 本机信息页「↻ 重新探测」/ 切设备时的自动重探。
+    """
     result = await db.execute(select(Script).where(Script.id == script_id))
     script = result.scalar_one_or_none()
     if not script:
         raise HTTPException(404, "Script not found")
-    checks = check_environment(script)
+
+    if device_id is None:
+        checks = check_environment(script)
+        return {
+            "script_id": script_id,
+            "checks": checks,
+            "unmet": [c for c in checks if not c["ok"]],
+            "all_ok": all(c["ok"] for c in checks),
+            "source": "local", "device_id": None, "conclusive": True, "note": None,
+        }
+
+    dev = (await db.execute(select(Device).where(Device.id == device_id))).scalar_one_or_none()
+    if not dev:
+        raise HTTPException(404, "Device not found")
+
+    ent = fresh_entry(device_id)
+    if not ent or not ent.get("platform"):
+        # 无新鲜结论（从未探测 / 已过 TTL 600s / 上次探测连不上）→ 「无数据」而不是「不通过」：
+        # checks=[] 表示**一项都没判**，conclusive=False 让调用方能把它和「有结论且全过」分开。
+        # all_ok=False 取「无结论即不算通过」的保守含义（别让调用方把空判定当绿灯）。
+        why = (f"「{dev.name}」最近一次探测失败：{ent.get('error')}" if (ent and not ent.get("ok"))
+               else f"「{dev.name}」没有未过期的环境探测结论")
+        return {
+            "script_id": script_id,
+            "checks": [],
+            "unmet": [],
+            "all_ok": False,
+            "source": "device", "device_id": device_id, "conclusive": False,
+            "note": why + " —— 请到「远程设备」页点「测试连接」，或在本机信息页点「↻ 重新探测」后重试",
+        }
+
+    checks = check_environment(script, device_platform=ent.get("platform"),
+                               device_runtimes=ent.get("runtimes") or [])
     return {
         "script_id": script_id,
         "checks": checks,
         "unmet": [c for c in checks if not c["ok"]],
         "all_ok": all(c["ok"] for c in checks),
+        "source": "device", "device_id": device_id, "conclusive": True, "note": None,
     }
 
 
@@ -580,7 +769,11 @@ async def parse_script_params(script_id: int, db: AsyncSession = Depends(get_db)
     if not p.exists():
         raise HTTPException(404, "Script file not found on disk")
 
-    params = parse_script(p, script.category)
+    try:
+        params = parse_script(p, script.category)
+    except ValueError as e:
+        # 编码探测失败（二进制/未知编码）→ 400 明确报错，不落 500（解析器不再静默返回空参数表）
+        raise HTTPException(400, str(e))
     script.parameters = json.dumps(params, ensure_ascii=False)
     await db.commit()
     await db.refresh(script)

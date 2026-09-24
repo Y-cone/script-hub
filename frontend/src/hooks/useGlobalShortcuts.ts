@@ -1,9 +1,9 @@
 /**
- * V5-F F2 全局快捷键（PRD 4.K）：两形态同绑定。
- *  - Ctrl+K  聚焦脚本搜索框（脚本库页）
- *  - F5      刷新当前页数据（派发 scripthub:refresh 事件，页面自行监听）
- *  - Ctrl+Enter 执行（派发 scripthub:run 事件，脚本详情页监听）
- *  - Ctrl+T  新建终端标签 / Ctrl+W 关闭当前终端标签（派发 scripthub:term-new / term-close）
+ * V5-G 全局快捷键（SPEC §3.3 十键）——桌面形态单一路径：
+ *   Ctrl+K 搜索面板 / Ctrl+/ 帮助面板 / Ctrl+Enter 执行 /
+ *   Ctrl+1..5 工作区 tab（ScriptDetail 自处理）/ Ctrl+T·W 终端标签 / F5 刷新 / Esc（面板自处理）
+ * 终端冲突（SPEC §3.3）：终端聚焦时 Ctrl+W/Ctrl+Insert/Shift+Insert/Esc 交给 xterm——
+ * 由 TerminalTab attachCustomKeyEventHandler 先行消费，此处不抢（xterm handler 返回 false 已 stopPropagation）。
  */
 import { useEffect } from 'react'
 
@@ -11,20 +11,17 @@ export function useGlobalShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey
-      // Ctrl+K：桌面形态打开搜索面板；Web 形态聚焦页面搜索框
+
+      // Ctrl+K：搜索面板（SPEC §2.6）
       if (mod && e.key.toLowerCase() === 'k') {
         e.preventDefault()
-        if (window.__SCRIPTHUB_API__) {
-          window.dispatchEvent(new CustomEvent('scripthub:palette'))
-        } else {
-          const el = document.querySelector<HTMLInputElement>(
-            'input[data-shortcut="search"]'
-          )
-          if (el) {
-            el.focus()
-            el.select()
-          }
-        }
+        window.dispatchEvent(new CustomEvent('scripthub:palette'))
+        return
+      }
+      // Ctrl+/：快捷键帮助面板（SPEC §2.8）
+      if (mod && (e.key === '/' || e.key === '?')) {
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('scripthub:kbd'))
         return
       }
       // F5：刷新（阻止浏览器重载，交给页面拉数据）
@@ -33,10 +30,12 @@ export function useGlobalShortcuts() {
         window.dispatchEvent(new CustomEvent('scripthub:refresh'))
         return
       }
-      // Ctrl+Enter：执行
+      // Ctrl+Enter：执行 —— 批次 AZ：改交工作区（`scripthub:run-hotkey`）再派发 `scripthub:run`。
+      // 原此处直接派发无 detail 的 `scripthub:run` → 右栏改的超时/Shell/参数既不下发也不落库
+      // （右栏状态由 ScriptWorkspace 持有，它不在链路上）。工作区未挂载时同原行为：无监听者、无动作。
       if (mod && e.key === 'Enter') {
         e.preventDefault()
-        window.dispatchEvent(new CustomEvent('scripthub:run'))
+        window.dispatchEvent(new CustomEvent('scripthub:run-hotkey'))
         return
       }
       // Ctrl+T / Ctrl+W：终端标签
@@ -46,12 +45,10 @@ export function useGlobalShortcuts() {
         return
       }
       if (mod && e.key.toLowerCase() === 'w') {
-        // 仅当在终端页时拦截（避免影响浏览器关标签意图）
-        if (location.pathname === '/terminal') {
-          e.preventDefault()
-          window.dispatchEvent(new CustomEvent('scripthub:term-close'))
-        }
+        e.preventDefault()
+        window.dispatchEvent(new CustomEvent('scripthub:term-close'))
       }
+      // Ctrl+1..5 工作区 tab：由 ScriptDetail 自行监听（SPEC §3.3），此处不重复处理
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

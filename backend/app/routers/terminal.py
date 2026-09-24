@@ -9,6 +9,7 @@ V5-C 持久化（4.F）：
 - 恢复：GET /api/terminal/sessions 返回持久化标签列表（含 scrollback）
 """
 import asyncio
+import sys
 import uuid
 import logging
 import json
@@ -17,7 +18,8 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from ..database import async_session
 from ..models.device import Device
-from ..services.session_manager import registry
+from ..services.session_manager import registry, resolve_terminal_shell
+from ..services.ssh_service import is_win_device
 from ..services.terminal_persist import persistence
 
 logger = logging.getLogger(__name__)
@@ -61,7 +63,7 @@ async def terminal_ws(websocket: WebSocket,
         except Exception:
             pass
 
-    # 建会话
+    # 建会话（shell 类型先过白名单：非法值 → error 帧 + 关闭，不静默退回默认）
     try:
         if device_id and device_id > 0:
             async with async_session() as db:
@@ -70,10 +72,15 @@ async def terminal_ws(websocket: WebSocket,
                 await websocket.send_json({"type": "error", "message": "设备不存在"})
                 await websocket.close()
                 return
+            # 平台判据唯一入口：实时探测（与手动执行/定时下放同一判据），不读 device.type
+            is_win = await is_win_device(dev)
+            shell = resolve_terminal_shell(shell, is_win)
             await registry.create_remote(
                 session_id, push_output, dev,
-                cols=max(cols, 1), rows=max(rows, 1), shell=shell or "")
+                cols=max(cols, 1), rows=max(rows, 1), shell=shell or "",
+                is_windows=is_win)
         else:
+            shell = resolve_terminal_shell(shell, sys.platform.startswith("win"))
             await registry.create_local(
                 session_id, push_output, shell=shell or None,
                 cols=max(cols, 1), rows=max(rows, 1))

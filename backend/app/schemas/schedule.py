@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 
+from .brief import LastRunBrief
+
 
 class ScheduleOut(BaseModel):
     id: int
@@ -19,6 +21,10 @@ class ScheduleOut(BaseModel):
     working_dir: Optional[str]
     timeout: int
     exec_location: Optional[str] = "local"
+    next_run_at: Optional[datetime] = None      # SPEC §7.2-#3：下次触发
+    last_run: Optional[LastRunBrief] = None     # 上次结果（列表状态点 + 周历事件色）
+    delegated: Optional[bool] = None            # ⇗ 下放角标（exec_location='device'）
+    device_type: Optional[str] = None           # 下放·crontab / 下放·schtasks 文案区分
     created_at: datetime
     updated_at: datetime
 

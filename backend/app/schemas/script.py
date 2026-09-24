@@ -2,6 +2,8 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 
+from .brief import LastRunBrief
+
 
 class ScriptOut(BaseModel):
     id: int
@@ -23,6 +25,7 @@ class ScriptOut(BaseModel):
     tags: list[str] = []
     created_at: datetime
     updated_at: datetime
+    last_run: Optional[LastRunBrief] = None  # SPEC §7.2-#1：列表「最近运行」列 + 状态点
 
     model_config = {"from_attributes": True}
 

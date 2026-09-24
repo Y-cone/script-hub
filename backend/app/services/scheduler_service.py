@@ -1,5 +1,4 @@
 """定时调度服务：管理 APScheduler 任务，调用执行引擎"""
-import asyncio
 import json
 import logging
 from datetime import datetime
@@ -12,7 +11,7 @@ from ..database import async_session
 from ..models.schedule import Schedule
 from ..models.script import Script
 from ..models.run_history import RunHistory
-from ..services.executor import executor
+from ..services.executor import executor, spawn_background
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +36,7 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
                 return
             script = (await db.execute(select(Script).where(Script.id == sched.script_id))).scalar_one_or_none()
             if not script:
+                logger.warning(f"调度 {schedule_id} 引用的脚本不存在（script_id={sched.script_id}），跳过本次触发")
                 return
 
             # 目标设备（远程执行）
@@ -74,7 +74,7 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
             await db.refresh(rh)
 
             if device:
-                asyncio.create_task(executor.execute_remote(
+                spawn_background(executor.execute_remote(
                     script=script,
                     device=device,
                     run_history_id=rh.id,
@@ -82,7 +82,7 @@ async def _run_scheduled(schedule_id: int, force: bool = False):
                     timeout=sched.timeout or script.timeout or 0,
                 ))
             else:
-                asyncio.create_task(executor.execute_script(
+                spawn_background(executor.execute_script(
                     script=script,
                     run_history_id=rh.id,
                     parameters=parameters,

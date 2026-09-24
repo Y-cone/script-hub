@@ -7,6 +7,7 @@ from .services.terminal_persist import ScrollbackFlusher
 from .routers.script import router as script_router
 from .routers.tags import router as tags_router
 from .routers.system import router as system_router
+from .routers.settings import router as settings_router
 from .routers.run import router as run_router
 from .routers.schedules import router as schedules_router
 from .routers.device import router as device_router
@@ -24,14 +25,14 @@ AUTO_SYNC_INTERVAL = 30
 
 
 async def _auto_sync_loop():
-    """后台自动同步：定期调用 scan_scripts，mtime 判断变更，异常不中断"""
+    """后台自动同步：先扫一轮再进轮询（首启脚本库即就绪），mtime 判断变更，异常不中断"""
     while True:
-        await asyncio.sleep(AUTO_SYNC_INTERVAL)
         try:
             async with async_session() as db:
                 await scan_scripts(db)
         except Exception as e:
             logger.error(f"自动同步失败: {e}")
+        await asyncio.sleep(AUTO_SYNC_INTERVAL)
 
 
 # 终端会话空闲回收：每 5 分钟检查（默认 30min 超时）
@@ -50,6 +51,12 @@ async def _session_reap_loop():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # 收尾上一次进程留下的 running 记录（持有执行任务的进程已死 → 只能在此置终态）
+    from .services.executor import fail_stale_running
+    try:
+        await fail_stale_running()
+    except Exception as e:
+        logger.error(f"running 记录收尾失败: {e}")
     await scheduler_service.start()
     sync_task = asyncio.create_task(_auto_sync_loop())
     # 会话空闲回收（PRD B）
@@ -88,6 +95,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(script_router)
 app.include_router(tags_router)
 app.include_router(system_router)
+app.include_router(settings_router)
 app.include_router(run_router)
 app.include_router(schedules_router)
 app.include_router(device_router)

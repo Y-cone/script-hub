@@ -48,7 +48,7 @@ export default function DirSelect({
         dropdownRender={(menu) => (
           <>
             {menu}
-            <div style={{ display: 'flex', gap: 6, padding: 8, borderTop: '1px solid #f0f0f0' }}>
+            <div style={{ display: 'flex', gap: 6, padding: 8, borderTop: '1px solid var(--sh-border, #f0f0f0)' }}>
               <Input
                 size="small"
                 placeholder="新目录名"

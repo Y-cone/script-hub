@@ -31,6 +31,7 @@ except ImportError:
     winpty = None
 
 from ..models.device import Device
+from ..services.ssh_service import RemoteOutputDecoder, encode_terminal_input, terminal_input_codec
 from .terminal_persist import ScrollbackBuffer
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,45 @@ IDLE_TIMEOUT = 30 * 60
 DEFAULT_UNIX_SHELL = "/bin/bash"
 # Windows 本机：eval 回显兜底（pywinpty 缺失时用；完整 ConPTY 见 WinConPTYSession）
 WIN_EVAL_SHELL = "cmd.exe"
+
+# Git Bash 常见安装目录/可执行文件（本地 winpty 启动需绝对路径——cmd 默认 PATH 不含 Git\bin）；
+# 远端 Windows 用等价形式（PATH 注入后调 bash，同 ssh_service.REMOTE_PROBE_CMDS_WIN["bash"] 的知识）
+WIN_GIT_BASH_DIRS = (r"C:\Program Files\Git\bin", r"C:\Program Files (x86)\Git\bin")
+WIN_GIT_BASH_EXES = tuple(d + r"\bash.exe" for d in WIN_GIT_BASH_DIRS) + (
+    r"C:\Program Files\Git\usr\bin\bash.exe",
+)
+REMOTE_WIN_BASH_CMD = 'cmd /c "set PATH=%PATH%;' + ";".join(WIN_GIT_BASH_DIRS) + '& bash"'
+
+# 显式选终端类型时的首屏清理命令（win32 专用，按 shell 分派）：与默认分支（下方 chcp+cls）
+# 同一注入方式——目标 shell 起来后单独 sendall 一条，靠它自己的清屏把横幅/前导换行抹掉。
+# cmd / PowerShell：各有版本+版权两行横幅 → cls。Git Bash：无横幅，但 ConPTY 起始那 29 行
+# 换行留下一个空行 → clear（不依赖 TERM 的等价写法见注释，实测见批次 O2）。
+WIN_SHELL_CLEAR = {"cmd": "cls", "powershell": "cls", "bash": "clear"}
+
+# 交互终端类型白名单（前端 ▾ 菜单契约值）：键与 executor.SHELL_RUNNERS 同源（可用的 shell 名），
+# 这里只列「能当交互式 shell 起」的子集（python3/pwsh 是脚本运行器，不是终端类型）。
+TERMINAL_SHELLS = {
+    "unix": ("bash", "sh", "zsh"),
+    "win32": ("cmd", "powershell", "bash"),  # bash = Git Bash（按上面的安装路径解析）
+}
+
+
+class TerminalShellError(ValueError):
+    """终端类型非法 / 与目标平台不符（路由层转成 error 帧；不静默退回默认）。"""
+
+
+def resolve_terminal_shell(shell: str, is_win: bool) -> str:
+    """校验并归一化终端类型：'' = 平台默认（现状不变）；非法值抛 TerminalShellError。"""
+    name = (shell or "").strip().lower()
+    if not name:
+        return ""
+    kinds = TERMINAL_SHELLS["win32" if is_win else "unix"]
+    if name not in kinds:
+        raise TerminalShellError(
+            f"终端类型「{shell}」不适用于"
+            f"{'Windows' if is_win else 'Unix'} 设备（可选：{', '.join(kinds)}；留空=默认）"
+        )
+    return name
 
 
 class SessionHandle:
@@ -90,6 +130,7 @@ class LocalPTYSession(SessionHandle):
         self.shell = shell or DEFAULT_UNIX_SHELL
         self.master_fd = None
         self.slave_fd = None
+        self.read_fd = None  # 读线程私有读 fd（_open 里 dup，见注释）
         self.proc: Optional[subprocess.Popen] = None
         self._reader: Optional[Thread] = None
         self._open()
@@ -112,7 +153,17 @@ class LocalPTYSession(SessionHandle):
             preexec_fn=os.setsid, close_fds=True,
         )
         os.close(self.slave_fd)
-        self._reader = Thread(target=self._read_loop, daemon=True)
+        # slave 号立刻归零：它马上会被 next openpty / dup 复用，close() 里再关一次
+        # 会误关别的会话刚拿到的 fd（实测：dup 拿到的正是这个号，close() 把它关掉后
+        # 新会话的 openpty 又拿到同号 → 旧读线程照样抢读）
+        self.slave_fd = None
+        # 读线程私有读 fd（dup）：close() 会关掉 master_fd，该 fd 号随即被下一个 pty.openpty()
+        # 复用；读线程若此刻刚启动还没进 os.read（新线程抢 GIL 可等 ~5ms 切换间隔，实测必现），
+        # 它读的就是「新会话的 pty」——两个读线程交替各抢 1 字节，新会话回显每两个字符丢一个
+        # （批次 R-2 实测：dev/StrictMode 双挂载下 10 键只剩 5 个，bdfhj / acegi 交替出现）。
+        # dup 出来的号只属于本读线程，只要没关就复用不到 → 跨会话抢读被根除。
+        self.read_fd = os.dup(self.master_fd)
+        self._reader = Thread(target=self._read_loop, args=(self.read_fd,), daemon=True)
         self._reader.start()
 
     def _win_read_loop(self):
@@ -127,15 +178,26 @@ class LocalPTYSession(SessionHandle):
             pass
         self._emit("\r\n[会话结束]\r\n")
 
-    def _read_loop(self):
+    def _read_loop(self, fd: int):
+        """读线程主体：只读 fd 参数（本会话 own 的 dup），不再每次回读 self.master_fd。
+
+        原先每轮 os.read(self.master_fd) 会在 close() 关 fd 后重新解析一个「已被复用的号」
+        → 读到别的会话的 pty（跨会话抢字符，R-2 根因）；fd 参数化后目标恒定。
+        """
         try:
             while True:
-                data = os.read(self.master_fd, 4096)
+                data = os.read(fd, 4096)
                 if not data:
                     break
                 self._emit(data.decode("utf-8", errors="replace"))
         except (OSError, ValueError):
             pass
+        finally:
+            # 读 fd 由读线程自己回收：close() 不能再关（已 dup 出去的号不在主进程 fd 表里被复用）
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         # EOF → emit exit 标记
         self._emit("\r\n[会话结束]\r\n")
 
@@ -187,6 +249,11 @@ class LocalPTYSession(SessionHandle):
                     os.close(fd)
                 except OSError:
                     pass
+        # 归零：close() 后这两个号可能立刻被下一个 openpty 复用，留成 int 会被
+        # send/resize 误用（send/resize 另有 self.closed 兜底，这里再堵一层）。
+        # 读 fd（self.read_fd）刻意不在这里关——它归读线程所有，见 _read_loop。
+        self.master_fd = None
+        self.slave_fd = None
 
 
 class WinConPTYSession(SessionHandle):
@@ -194,15 +261,8 @@ class WinConPTYSession(SessionHandle):
 
     vim/top/方向键/resize 全功能（对比 eval 回显兜底的局限）。
     shell 解析：bash（Git Bash）不在 cmd 默认 PATH——按 PATH + Git Bash
-    常见安装路径解析完整可执行路径（与 detect_has_bash 同源知识）。
+    常见安装路径解析完整可执行路径（与 detect_has_bash 同源知识，路径常量在模块顶部）。
     """
-
-    # Git Bash 常见安装路径（与 ssh_service.detect_has_bash 同源）
-    GIT_BASH_PATHS = [
-        r"C:\Program Files\Git\bin\bash.exe",
-        r"C:\Program Files (x86)\Git\bin\bash.exe",
-        r"C:\Program Files\Git\usr\bin\bash.exe",
-    ]
 
     def __init__(self, session_id: str, output_cb, shell: str = "",
                  cols: int = 80, rows: int = 24):
@@ -222,7 +282,7 @@ class WinConPTYSession(SessionHandle):
         if name == "powershell":
             return "powershell.exe"
         if name == "bash":
-            for p in self.GIT_BASH_PATHS:
+            for p in WIN_GIT_BASH_EXES:
                 if Path(p).exists():
                     return p
             found = shutil.which("bash")
@@ -292,6 +352,13 @@ class RemotePTYSession(SessionHandle):
         self.client = client
         self.is_windows = is_windows
         self.shell = shell
+        # Windows 目标：远端回显是 ANSI(cp936) / UTF-8 混流，纯 UTF-8 解码会满屏 U+FFFD
+        # → 复用批次 AA 的混合解码器（ssh_service.RemoteOutputDecoder，被真机逼出来的那套）；
+        # Linux/macOS 远端保持纯 UTF-8 快速路径（不动现状）。
+        self._decoder = RemoteOutputDecoder() if is_windows else None
+        # 输入方向编码：Windows 显式 cmd/powershell（未动代码页）要按系统 ANSI 发中文，
+        # 其余（含 Linux 远端、Windows 默认 shell 已 chcp 65001、Git Bash）UTF-8 直通。
+        self._input_codec = terminal_input_codec(is_windows, shell)
         self.channel = None
         self._reader: Optional[Thread] = None
         self._open(cols, rows)
@@ -303,19 +370,48 @@ class RemotePTYSession(SessionHandle):
             # 指定 shell：exec_command 直接启动目标 shell（带 pty 交互）。
             # 不同于 invoke_shell 后再发命令（会嵌套/报错），exec_command 是替换式，
             # 选 PowerShell/CMD/Bash/Zsh 都能干净进入目标 shell。
-            chan.exec_command(self.shell)
+            cmd = self.shell
+            if self.is_windows and cmd == "bash":
+                # Windows：Git Bash 不在默认 PATH → 先并入安装目录再调 bash（本机同源知识）
+                cmd = REMOTE_WIN_BASH_CMD
+            chan.exec_command(cmd)
+            # 显式类型同样要干净首屏（O 批只修了默认分支）：复用同一注入方式，按 shell 分派清屏。
+            # 独立一条 sendall，不串 && / &——PowerShell 上 & 是解析错误并留下续行提示符。
+            # 只发一个 \r（不用 \r\n）：PowerShell 把后面的 \n 当第二次换行 → 留一个 ">>" 续行提示符；
+            # Git Bash 会因此多打一组提示符。清理在建会话时发，早于任何用户输入进 pty，故不吃掉抢跑按键。
+            clear = WIN_SHELL_CLEAR.get(self.shell, "") if self.is_windows else ""
+            if clear:
+                try:
+                    chan.sendall(clear + "\r")
+                except Exception:
+                    pass
         else:
             # 默认 shell：SSH 登录默认（invoke_shell）
             chan.invoke_shell()
             # 仅 Windows 远端（GBK 目标）自动 chcp 65001（PRD F）
             if self.is_windows:
                 try:
-                    chan.sendall("chcp 65001 >nul 2>&1\r\n")
+                    # cls 紧随其后（同一 sendall，按序进输入流）：抹掉 cmd 版本/版权头、
+                    # ConPTY 初始化那 29 行换行、以及本行 chcp 的回显——用户看到的首屏只有干净提示符。
+                    # 独立两行而非 "& cls"：&&/& 在 PowerShell 默认 shell 上是解析错误并留下续行提示符。
+                    chan.sendall("chcp 65001 >nul 2>&1\r\ncls\r\n")
                 except Exception:
                     pass
         self.channel = chan
         self._reader = Thread(target=self._read_loop, daemon=True)
         self._reader.start()
+
+    def _decode_output(self, data: bytes) -> str:
+        """远端输出字节 → str。
+
+        Windows 目标：混流（同一行里既有 UTF-8 片段也有 ANSI 片段）→ 复用批次 AA 的
+        RemoteOutputDecoder（严格 UTF-8 优先，失败才逐字节混合解码，不丢字节、不静默 replace）。
+        feed 按 \\n/\\r 切段；drain 把没有换行的提示符立刻吐出来（否则首屏要等到下一次按键）。
+        其他远端：纯 UTF-8 快速路径（与改动前逐字节一致）。
+        """
+        if self._decoder is None:
+            return data.decode("utf-8", errors="replace")
+        return self._decoder.feed(data) + self._decoder.drain()
 
     def _read_loop(self):
         try:
@@ -323,16 +419,20 @@ class RemotePTYSession(SessionHandle):
                 data = self.channel.recv(4096)
                 if not data:
                     break
-                self._emit(data.decode("utf-8", errors="replace"))
+                self._emit(self._decode_output(data))
         except Exception:
             pass
+        if self._decoder is not None:
+            # 尾半截字节/末行也要出来（flush 不丢尾巴；Linux 远端无缓冲，无副作用）
+            self._emit(self._decoder.flush())
         self._emit("\r\n[会话结束]\r\n")
 
     def send(self, data: str):
         if self.closed or self.channel is None:
             return
         try:
-            self.channel.sendall(data.encode("utf-8"))
+            # 控制序列（方向键/Ctrl-C/ESC）逐字节透传，文本按目标代码页（见 encode_terminal_input）
+            self.channel.sendall(encode_terminal_input(data, self._input_codec))
         except Exception:
             pass
 
@@ -374,12 +474,14 @@ class SessionRegistry:
         return s
 
     async def create_remote(self, session_id: str, output_cb, device: Device,
-                            cols=80, rows=24, shell: str = "") -> RemotePTYSession:
+                            cols=80, rows=24, shell: str = "",
+                            is_windows: bool = False) -> RemotePTYSession:
+        """建远程会话。is_windows 由路由层用唯一平台判据（ssh_service.is_win_device）算好传入
+        —— 这里不再读 device.type（SPEC：该字段仅 UI 区分，可能标错/过期）。"""
         from ..services.ssh_service import pool
         client = await pool.get(device)
-        is_win = str(getattr(device, 'type', '')).lower() == 'windows'
         s = RemotePTYSession(session_id, output_cb, client, cols, rows,
-                             is_windows=is_win, shell=shell)
+                             is_windows=is_windows, shell=shell)
         async with self._lock:
             self._sessions[session_id] = s
         return s

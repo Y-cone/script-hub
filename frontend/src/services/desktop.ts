@@ -1,55 +1,11 @@
 /**
  * V5-F 桌面交互层（PRD 4.K F2）：原生能力桥。
  *
- * 单代码库自适应：Tauri 环境（isTauri()）走原生 API；Web 形态回退浏览器实现。
- * 所有函数都保证两形态可用——调用方无需关心环境。
+ * 桌面形态（isTauri()，判据 = !!window.__SCRIPTHUB_API__）走 Tauri 原生 API。
+ * 保留的浏览器回退分支是**判据失效时的兜底**（真壳内恒不走、CDP 验前端也不走）——
+ * 不是 Web 形态支持：Web 形态已废弃（只保留桌面端）。
  */
 import { isTauri } from '../config'
-
-/** 保存文件对话框 + 写文件（导出场景）。返回所选路径；取消返回 null。 */
-export async function saveFile(defaultName: string, content: string): Promise<string | null> {
-  if (isTauri()) {
-    const { save } = await import('@tauri-apps/plugin-dialog')
-    const path = await save({ defaultPath: defaultName })
-    if (!path) return null
-    const { writeTextFile } = await import('@tauri-apps/plugin-fs')
-    await writeTextFile(path, content)
-    return path
-  }
-  // Web 回退：浏览器下载
-  const blob = new Blob([content], { type: 'application/octet-stream' })
-  const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
-  a.download = defaultName
-  a.click()
-  URL.revokeObjectURL(a.href)
-  return defaultName
-}
-
-/** 打开文件对话框 + 读文件（导入场景）。返回 {name, content}；取消返回 null。 */
-export async function openFile(): Promise<{ name: string; content: string } | null> {
-  if (isTauri()) {
-    const { open } = await import('@tauri-apps/plugin-dialog')
-    const path = await open({ multiple: false })
-    if (!path || Array.isArray(path)) return null
-    const { readTextFile } = await import('@tauri-apps/plugin-fs')
-    const content = await readTextFile(path)
-    return { name: path.split(/[\\/]/).pop() || path, content }
-  }
-  // Web 回退：<input type=file>
-  return new Promise((resolve) => {
-    const input = document.createElement('input')
-    input.type = 'file'
-    input.onchange = () => {
-      const f = input.files?.[0]
-      if (!f) return resolve(null)
-      const reader = new FileReader()
-      reader.onload = () => resolve({ name: f.name, content: String(reader.result) })
-      reader.readAsText(f)
-    }
-    input.click()
-  })
-}
 
 /** 保存二进制文件（导出 zip 等）。返回所选路径；取消返回 null。 */
 export async function saveBinaryFile(defaultName: string, bytes: Uint8Array): Promise<string | null> {

@@ -1,0 +1,1012 @@
+/* V5-G 原型样式层（proto.css）
+   来源：docs/v5g-pages-mockup.html 的 <style>，逐条作用域化到 .desktop-mode。
+   原型 = UI 唯一视觉基线；本层为其 1:1 移植，令牌单源指向 desktop.css 的 --sh-*。 */
+
+.desktop-mode {
+  --bg: var(--sh-bg);
+  --panel: var(--sh-panel);
+  --panel2: var(--sh-panel2);
+  --float: var(--sh-float);
+  --text: var(--sh-text);
+  --muted: var(--sh-muted);
+  --border: var(--sh-border);
+  --pri: var(--sh-pri);
+  --ok: var(--sh-ok);
+  --err: var(--sh-err);
+  --warn: var(--sh-warn);
+  --term: var(--sh-term);
+  --mono: var(--sh-mono);
+  /* v2.16：原型 .fold/.trow 用 var(--line)、.tinp.ph 用 var(--dim)，但原型 :root 未定义这两枚
+     → 照抄会得到「声明失效」（边框消失）。在此补产品侧映射（值 = --sh-border / --sh-dim）。 */
+  --line: var(--sh-border);
+  --dim: var(--sh-dim);
+  /* 批次 I-2：下拉浮层选项 hover 底。原型 .wcb i:hover 用了 var(--hover) 但 :root 未定义
+     → 按令牌单源补映射（hover = --sh-panel2，与 tr:hover td / pl-item 选中底同值）。 */
+  --hover: var(--sh-panel2);
+}
+
+.desktop-mode .btn {
+  display:inline-block;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:13px
+}
+
+.desktop-mode .btn.pri {
+  background:var(--pri);border-color:var(--pri);color:#fff
+}
+
+.desktop-mode .search {
+  background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:4px 10px;color:var(--muted);font-size:13px
+}
+
+.desktop-mode .tag {
+  display:inline-block;padding:1px 8px;border-radius:4px;font-size:12px;background:var(--panel2);border:1px solid var(--border);color:var(--muted)
+}
+
+/* v2.21（P2）：危险族芯片。原型侧 11 处 class="tag danger" 无规则（渲染成灰标签）；应用侧此前靠
+   JSX 内联 color/borderColor 硬撑（违反单一来源）。此处与 .btn.danger 同值：文字 --err + 描边 #5a3a3a。
+   成员 = 「⚠ 高危」标记（ScriptWorkspace）+ 行内「删除」操作芯片（DesktopSchedules / TagManagerPalette）。 */
+.desktop-mode .tag.danger {
+  color:var(--err);border-color:#5a3a3a
+}
+
+.desktop-mode table {
+  width:100%;border-collapse:collapse;font-size:13.5px
+}
+
+.desktop-mode th {
+  /* 批次 I-1：表头加高 32(=33.25 实测) → 38，并与 td 同字号（12.5px）；
+     垂直内距 7→5，给「标签」列内的芯片行（22px 芯片 + 4px 滚动条 = 26）留出 27px 内容高。
+     影响：桌面形态全部原生表格（见批次 I 报告清单）。
+     G2-7 补：表头 nowrap —— 列宽被其它列挤压时（如「标签」列变宽），
+     「最近运行」这类 4 字列名会折行把 height:38 撑到 48。表头文字一律不折行，
+     行高即恒为 38（超出场景由列宽让位/横向滚动处理，不靠折行）。 */
+  text-align:left;color:var(--muted);font-weight:500;font-size:12.5px;height:38px;padding:5px 12px;border-bottom:1px solid var(--border);background:var(--panel);white-space:nowrap
+}
+
+.desktop-mode td {
+  padding:8px 12px;border-bottom:1px solid #2a2c33
+}
+
+/* ==== 批次 AE：列表表头固定（§1 脚本库中栏 / §3 运行历史表格） ====
+   两页结构相同：filterbar + <div style="flex:1;overflow:auto"><table>，那个 overflow:auto 的盒子
+   就是 th 最近的可滚动祖先（th 的 sticky 只认它，与页面其余滚动无关），故一条规则覆盖两处。
+   脚本库中栏自身的祖先链没有 overflow:hidden（批次 Z 已给该列 minHeight:0 收敛高度），
+   不满足「祖先 overflow:hidden 会让 sticky 失效」的坑。
+   z-index:3 —— 行的 hover 底（tr:hover td 的 --panel2）与表头在同一层叠上下文，不抬会被行压住。
+   底线用 box-shadow 而不是 border-bottom：border-collapse:collapse 下 th 的边框归表格边框层，
+   不随表头滚动 → 滚起来表头与线分离、下方行从缝里透出来（sticky 表头最常见的视觉 bug）。
+   注意：不要动 :892 的 .desktop-mode .sticky（bottom:0，脚本配置页命令预览用），两回事。 */
+.desktop-mode thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--panel);          /* th 原本就是 --panel 不透明底，此处显式重申：透明底=能看到下方行 */
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.desktop-mode tr:hover td {
+  background:var(--panel2)
+}
+
+.desktop-mode .mono {
+  font-family:var(--mono);font-size:12.5px;color:var(--muted)
+}
+
+.desktop-mode .ok {
+  color:var(--ok)
+}
+
+.desktop-mode .err {
+  color:var(--err)
+}
+
+.desktop-mode .warn {
+  color:var(--warn)
+}
+
+.desktop-mode .dot {
+  display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px
+}
+
+.desktop-mode .topbar {
+  background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 12px
+}
+
+.desktop-mode .logo {
+  font-weight:600;font-size:14px;color:var(--text)
+}
+
+.desktop-mode .nav {
+  display:flex;gap:2px
+}
+
+.desktop-mode .nav .it {
+  padding:5px 12px;border-radius:4px;color:var(--muted);font-size:13.5px
+}
+
+.desktop-mode .nav .it.on {
+  background:var(--float);color:var(--text)
+}
+
+.desktop-mode .topbar .search {
+  width:240px;margin-left:8px
+}
+
+.desktop-mode .devpick {
+  margin-left:auto;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);
+  /* 批次 AN：只读展示（不再可点/可切）—— 值同原型 .devpick 的 cursor:default */
+  cursor:default
+}
+
+.desktop-mode .devpick b {
+  color:var(--text);font-weight:500
+}
+
+/* 批次 AU：原型 §0 骨架的栅格类，产品侧当前未用 —— ScriptWorkspace 把同一套布局写成了
+   内联 style（`flex:1; minHeight:0; display:grid; gridTemplateColumns:'1fr 300px'; overflow:hidden`，
+   见 components/desktop/ScriptWorkspace.tsx:174/184），属 SPEC §0.4 违规的同一族（同 .pl-h）。
+   修法 = 该 div 改挂 .main/.detail（内联几何逐项与原型同值），故本批不删。详见批次 AU 报告 §3。 */
+.desktop-mode .main {
+  display:grid;grid-template-columns:1fr 300px;min-height:0
+}
+
+.desktop-mode .detail {
+  display:flex;flex-direction:column;min-width:0
+}
+
+.desktop-mode .dh {
+  height:42px;padding:0 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px
+}
+
+.desktop-mode .dh b {
+  font-size:15px
+}
+
+.desktop-mode .dh .mono {
+  margin-left:auto
+}
+
+.desktop-mode .dbody {
+  flex:1;padding:14px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden
+}
+
+.desktop-mode .kv {
+  display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:13px
+}
+
+.desktop-mode .kv b {
+  color:var(--text);font-weight:500
+}
+
+.desktop-mode .tabs {
+  display:flex;gap:2px;border-bottom:1px solid var(--border)
+}
+
+.desktop-mode .tabs .tb {
+  padding:6px 14px;font-size:14px;color:var(--muted);border-radius:4px 4px 0 0
+}
+
+.desktop-mode .tabs .tb.on {
+  background:var(--panel2);color:var(--text);box-shadow:inset 0 -2px 0 var(--pri)
+}
+
+.desktop-mode .out {
+  flex:1;background:var(--term);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:12.5px;color:#a8b3c2;overflow:hidden;min-height:0
+}
+
+.desktop-mode .out .p {
+  color:var(--ok)
+}
+
+.desktop-mode .right {
+  background:var(--panel);border-left:1px solid var(--border);padding:12px 14px;font-size:13px;display:flex;flex-direction:column;gap:10px;min-height:0;height:100%;box-sizing:border-box
+}
+
+.desktop-mode .right h5 {
+  font-size:12.5px;color:var(--muted);font-weight:500;letter-spacing:.04em;margin-bottom:2px
+}
+
+.desktop-mode .row {
+  display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #2a2c33
+}
+
+.desktop-mode .row span:last-child {
+  color:var(--muted)
+}
+
+.desktop-mode .right .fld {
+  margin-bottom:8px
+}
+
+.desktop-mode .right .fld label {
+  display:block;color:var(--muted);font-size:12px;margin-bottom:3px
+}
+
+/* v2.21（P5）：内距 4×8 → 3×10（原型实渲 28 → 26），与全站下拉/筛选控件 26 统一。 */
+.desktop-mode .right .fld .sel {
+  background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:3px 10px;display:flex;justify-content:space-between;color:var(--text)
+}
+
+.desktop-mode .right .run {
+  margin-top:4px;display:flex;gap:8px
+}
+
+.desktop-mode .right .run .btn {
+  flex:1;text-align:center
+}
+
+.desktop-mode .gterm {
+  border-top:1px solid var(--border);background:var(--term);display:flex;flex-direction:column;min-height:0
+}
+
+.desktop-mode .gterm .gt-head {
+  height:28px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px;padding:0 8px;font-size:12.5px;color:var(--muted)
+}
+
+.desktop-mode .gterm .gt-head .gt-tab {
+  padding:3px 10px;border-radius:4px;display:flex;gap:6px;align-items:center
+}
+
+.desktop-mode .gterm .gt-head .gt-tab.on {
+  background:var(--float);color:var(--text)
+}
+
+.desktop-mode .gterm .gt-head .gt-tab .x {
+  color:var(--muted)
+}
+
+.desktop-mode .gterm .gt-head .newt {
+  margin-left:auto;color:var(--pri)
+}
+
+/* 批次 Z（用户反馈「交互终端操作界面四周存在较宽边距，消除视觉黑边」）：
+   旧内距 = 本规则 6/12 + TerminalTab 内联 padding:8 → 实测上/下 14、左/右 20。
+   xterm 的 fit 插件按「父元素内容盒 − .xterm 自身 padding」算行列（addon-fit proposeDimensions），
+   所以留白的唯一出处应是 .xterm（语义选择器），容器归零，避免两层叠加。 */
+.desktop-mode .gterm .gt-body {
+  flex:1;padding:0;font-family:var(--mono);font-size:13px;color:#a8b3c2;overflow:hidden
+}
+
+/* 批次 Z：交互终端内距的唯一出处（上/下 4、左/右 6）。
+   4px 保证正文首行不贴上一行标签栏/面板边框；横向 6px 与 fit 取整残差（≤1 格 7px）合起来仍贴边。
+   旧写法把它挂在 desktop.css 的 `.desktop-mode [style*="191a1f"] .xterm`（用内联样式里的色值当选择器，
+   改色即静默失效）—— 该规则实测从未命中任何活动 xterm，已删。 */
+.desktop-mode .gterm .xterm {
+  padding:4px 6px
+}
+
+.desktop-mode .topbar {
+  height:40px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 12px
+}
+
+.desktop-mode .logo {
+  font-weight:600;font-size:14px
+}
+
+.desktop-mode .nav .it {
+  padding:4px 12px;border-radius:4px;color:var(--muted);font-size:13.5px
+}
+
+.desktop-mode .search {
+  /* v2.8：显式 height —— 原生 select 与 input 的默认盒高差 3px（23 vs 26），同排会参差 */
+  height:26px;background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:3px 10px;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px
+}
+
+.desktop-mode .dot {
+  display:inline-block;width:6px;height:6px;border-radius:50%;
+}
+
+.desktop-mode .btn {
+  display:inline-block;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:13px;cursor:default
+}
+
+.desktop-mode .btn.danger {
+  color:var(--err);border-color:#5a3a3a
+}
+
+.desktop-mode td {
+  padding:7px 12px;border-bottom:1px solid #2a2c33
+}
+
+.desktop-mode .filterbar {
+  /* 批次 M-7：顶部 10→16 / 左右 14→18（内容不贴窗口边） */
+  display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--border)
+}
+
+.desktop-mode .sel {
+  background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:3px 10px;font-size:13px;color:var(--text);display:inline-flex;gap:14px;align-items:center
+}
+
+.desktop-mode .sel:after {
+  content:'▾';color:var(--muted);font-size:11px
+}
+
+.desktop-mode .switch {
+  display:inline-block;width:26px;height:14px;border-radius:7px;background:var(--pri);position:relative;vertical-align:middle
+}
+
+.desktop-mode .switch:after {
+  content:'';position:absolute;right:2px;top:2px;width:10px;height:10px;border-radius:50%;background:#fff
+}
+
+.desktop-mode .switch.off {
+  background:#4a4d56
+}
+
+.desktop-mode .switch.off:after {
+  right:auto;left:2px
+}
+
+/* 批次 M-7：页面内容与窗口边框的留白（顶部 12→18 / 左右 14→18，与下面同选择器的旧声明
+   *统一* 成同一个值——原来这里是 `padding:12px 14px 0`，被后面的 `12px 14px` 覆盖，
+   留着会误导后来人；两处同步改，行为等同改后值）。 */
+.desktop-mode .pagehead {
+  display:flex;align-items:center;gap:12px;padding:18px 18px 12px
+}
+
+.desktop-mode .pagehead b {
+  font-size:15px
+}
+
+.desktop-mode .pagehead .cnt {
+  color:var(--muted);font-size:13px
+}
+
+.desktop-mode .cards {
+  /* 批次 M-7：14→18（不贴窗口边） */
+  display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:18px
+}
+
+.desktop-mode .dcard {
+  background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px
+}
+
+/* 批次 AN：当前设备标识（原型 §4 `.dcard.cur`）。沿用站内既有的「选中 = 左 2px 主色竖条」语言
+   （同 .selx-opt.on / 表格选中行），不新增字符、不铺大面积色。 */
+.desktop-mode .dcard.cur {
+  box-shadow:inset 2px 0 0 var(--pri)
+}
+
+.desktop-mode .dcard .dh {
+  display:flex;align-items:center;gap:8px;margin-bottom:8px
+}
+
+.desktop-mode .dcard .dh b {
+  font-size:14.5px
+}
+
+.desktop-mode .dcard .row {
+  display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--muted)
+}
+
+.desktop-mode .dcard .row span:first-child {
+  color:var(--muted)
+}
+
+.desktop-mode .dcard .row span:last-child {
+  color:var(--text)
+}
+
+.desktop-mode .dcard .ops {
+  display:flex;gap:8px;margin-top:10px
+}
+
+.desktop-mode .sysgrid {
+  /* 批次 M-7：14→18（不贴窗口边） */
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:18px
+}
+
+.desktop-mode .scard {
+  background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:14px
+}
+
+.desktop-mode .scard h5 {
+  font-size:13.5px;color:var(--text);font-weight:600;margin-bottom:12px;letter-spacing:0
+}
+
+/* 批次 M-5：上面把卡片标题的 color 提到 --text（层级拉开），而 .scard h5 的特异性
+   (0,2,1) 高于 .desktop-mode .err (0,2,0) —— 错误卡标题「探测失败」会被刷成正文色，
+   这里把错误色补回来。 */
+.desktop-mode .scard h5.err {
+  color:var(--err)
+}
+
+.desktop-mode .rt {
+  display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #2a2c33;font-size:13.5px
+}
+
+.desktop-mode .rt:last-child {
+  border-bottom:none
+}
+
+.desktop-mode .rt .v {
+  font-family:var(--mono);font-size:12.5px;color:var(--muted)
+}
+
+.desktop-mode .kv {
+  display:flex;justify-content:space-between;padding:6px 0;font-size:13.5px;border-bottom:1px solid #2a2c33
+}
+
+.desktop-mode .kv:last-child {
+  border-bottom:none
+}
+
+.desktop-mode .kv span:first-child {
+  color:var(--muted)
+}
+
+.desktop-mode .kv span:last-child {
+  font-family:var(--mono);font-size:13px
+}
+
+.desktop-mode .dot {
+  display:inline-block;width:6px;height:6px;border-radius:50%
+}
+
+/* 批次 M-7：同选择器的后置声明（真正生效的那份），与上面那份统一为同一值 */
+.desktop-mode .pagehead {
+  display:flex;align-items:center;gap:12px;padding:18px 18px 12px
+}
+
+.desktop-mode .seg {
+  display:flex;gap:2px;background:var(--panel2);border-radius:4px;padding:2px
+}
+
+.desktop-mode .seg .sg {
+  padding:3px 14px;border-radius:4px;font-size:13px;color:var(--muted);cursor:default
+}
+
+.desktop-mode .seg .sg.on {
+  background:var(--float);color:var(--text)
+}
+
+.desktop-mode .cal {
+  padding:0 14px 6px
+}
+
+.desktop-mode .cal-head {
+  display:grid;grid-template-columns:repeat(7,1fr) 70px;gap:6px;font-size:12px;color:var(--muted);margin-bottom:6px
+}
+
+.desktop-mode .cal-head .d {
+  display:flex;gap:6px;align-items:baseline
+}
+
+.desktop-mode .cal-head .d b {
+  color:var(--text);font-size:13px
+}
+
+.desktop-mode .cal-head .d.today b {
+  color:var(--pri)
+}
+
+.desktop-mode .cal-row {
+  display:grid;grid-template-columns:repeat(7,1fr) 70px;gap:6px;margin-bottom:6px
+}
+
+.desktop-mode .cell {
+  background:var(--panel);border:1px solid var(--border);border-radius:4px;min-height:96px;padding:5px 6px;font-size:12.5px;cursor:default
+}
+
+.desktop-mode .cell.empty {
+  background:transparent;border-style:dashed;opacity:.35
+}
+
+.desktop-mode .cell.today {
+  border-color:var(--pri)
+}
+
+.desktop-mode .ev {
+  display:flex;align-items:center;gap:4px;margin-bottom:3px;padding:1px 4px;border-radius:4px;white-space:nowrap;overflow:hidden
+}
+
+.desktop-mode .ev .t {
+  font-family:var(--mono);color:var(--muted);flex-shrink:0
+}
+
+.desktop-mode .ev .n {
+  overflow:hidden;text-overflow:ellipsis
+}
+
+.desktop-mode .ev.remote .n:after {
+  content:' ⇗';color:var(--muted);font-size:10px
+}
+
+.desktop-mode .ev:hover {
+  background:var(--float)
+}
+
+.desktop-mode .wk {
+  background:var(--panel);border:1px solid var(--border);border-radius:4px;min-height:96px;padding:6px 8px;font-size:12px
+}
+
+.desktop-mode .wk .big {
+  font-size:19px;font-family:var(--mono);color:var(--text)
+}
+
+.desktop-mode .wk .l {
+  color:var(--muted);font-size:11.5px;margin-top:2px
+}
+
+.desktop-mode .wk .bar {
+  height:3px;border-radius:2px;background:var(--panel2);margin-top:8px;overflow:hidden
+}
+
+.desktop-mode .wk .bar i {
+  display:block;height:100%;background:var(--pri)
+}
+
+.desktop-mode .ev .st {
+  width:5px;height:5px;border-radius:50%;flex-shrink:0
+}
+
+.desktop-mode .pop {
+  position:absolute;background:var(--float);border:1px solid var(--border);border-radius:6px;box-shadow:0 12px 32px rgba(0,0,0,.5);padding:10px 12px;width:260px;font-size:13px;z-index:5
+}
+
+.desktop-mode .pop .ph {
+  display:flex;align-items:center;gap:6px;margin-bottom:6px
+}
+
+.desktop-mode .pop .row {
+  display:flex;justify-content:space-between;padding:3px 0;color:var(--muted)
+}
+
+.desktop-mode .pop .row span:last-child {
+  color:var(--text)
+}
+
+.desktop-mode .fld label {
+  display:block;font-size:12px;color:var(--muted);margin-bottom:4px
+}
+
+.desktop-mode .fld .in {
+  background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:5px 10px;font-size:13.5px;display:flex;justify-content:space-between
+}
+
+.desktop-mode .gterm.collapsed {
+  background:var(--panel)
+}
+
+.desktop-mode .gterm.collapsed .gt-head {
+  border-bottom:none;height:28px
+}
+
+.desktop-mode .gterm.collapsed .gt-body {
+  display:none
+}
+
+.desktop-mode .palette {
+  width:520px;background:var(--float);border:1px solid var(--border);border-radius:6px;box-shadow:0 20px 60px rgba(0,0,0,.55);overflow:hidden
+}
+
+.desktop-mode .pl-in {
+  display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--border);font-size:14px;color:var(--text)
+}
+
+.desktop-mode .pl-in .mono {
+  margin-left:auto;color:var(--muted)
+}
+
+.desktop-mode .pl-list {
+  padding:4px 0;max-height:280px;overflow:hidden
+}
+
+.desktop-mode .pl-item {
+  display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:13.5px
+}
+
+.desktop-mode .pl-item .mono {
+  margin-left:auto
+}
+
+.desktop-mode .pl-item.on {
+  background:var(--pri);color:#fff
+}
+
+.desktop-mode .pl-item.on .mono {
+  color:#e8eef7
+}
+
+.desktop-mode .pl-foot {
+  display:flex;gap:14px;padding:8px 14px;border-top:1px solid var(--border);font-size:12.5px;color:var(--muted)
+}
+
+.desktop-mode .pl-foot .mono {
+  margin-left:auto
+}
+
+/* 批次 AU：原型 §6.4 快捷键帮助面板的头部/浮层类。产品侧当前未用（DesktopShell 的
+   ShortcutPalette 自创 .sh-palette + 内联样式复刻了本文件的 .palette/.pl-h 值）
+   → 属 SPEC §0.4「同一类名必须是原型里的那个值」的违规，修法是 TSX 改用 .palette/.pl-h，
+   故本批不删（删了会让修法失去落点）。详见批次 AU 报告 §3。 */
+.desktop-mode .pl-h {
+  display:flex;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border);font-size:14px;font-weight:600
+}
+
+.desktop-mode .pl-h span {
+  margin-left:auto;color:var(--muted);font-weight:400
+}
+
+/* v2.21（P3）：原型 §6.4 改三列表格后 .pl-group 作废 → 产品侧同步删除（应用未使用该类）。 */
+.desktop-mode .kbd {
+  display:inline-block;padding:1px 6px;border:1px solid var(--border);border-radius:4px;background:var(--panel2);font-family:var(--mono);font-size:12px;color:var(--text);margin-left:auto;white-space:nowrap
+}
+
+.desktop-mode .more {
+  color:var(--pri);font-size:12px;padding:1px 4px
+}
+
+.desktop-mode .cell .ev.hidden {
+  display:none
+}
+
+
+/* ==== 原生控件等价实现（原型 .sel 是静态 div，应用里用原生控件保证可用性） ==== */
+.desktop-mode select.sel,
+.desktop-mode input.sel {
+  background: var(--panel2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size:13px;
+  color: var(--text);
+  font-family: inherit;
+  height: 26px;
+  line-height: 18px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+.desktop-mode select.sel {
+  padding-right: 24px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 11px, calc(100% - 9px) 11px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.desktop-mode input.sel::placeholder { color: var(--muted); }
+.desktop-mode input.sel:focus,
+.desktop-mode select.sel:focus { border-color: var(--pri); }
+.desktop-mode select.sel option { background: var(--panel2); color: var(--text); }
+
+
+/* ==== 批次 I-2：自绘下拉（Sel.tsx）——原生 select 的替换件 ====
+   关闭态 = .sel 逐项同值（实测 h26 / r4 / 1px --border / --panel2 / 13px --text / 右侧自绘 ▾）；
+   打开态 = 原型浮层规范（--float 底 / 1px --border / r6 / shadow 0 12px 32px / 选项 h26 / 内距 0 10px /
+   hover 底 --hover / 选中项左侧 2px --pri 竖条）。
+   批次 Z（选中态重设计）：选中项旧版只有 --pri 文字 + 竖条、没有底色 —— 深色菜单里蓝字偏刺眼，
+   且与 hover（有底）不是同一套视觉语言。新版沿用站内选中语言（左 2px 主色条 + 明确底色 + 常规文字色）。
+   为什么不直接抄左栏导航/CategoryList 的 `background: var(--float)`：浮层底本身就是 --float（Level 2
+   悬浮/弹层），同色 = 等于没有底色（实测 ΔRGB=0）；hover 用的 --hover 在浮层底上也只有 Δ3
+   （亮度 45.2 vs 48.2）—— 即用户若照抄站内规范，选中态会直接消失。故底色改用主色 20% 叠加
+   （单源取 --pri，不新增色字面量），文字回到 --text。 */
+.desktop-mode .selx { position: relative; display: inline-block; }
+.desktop-mode .selx-btn {
+  display: flex; align-items: center; gap: 8px;
+  height: 26px; width: 100%; padding: 0 10px;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 4px;
+  font-size: 13px; color: var(--text); box-sizing: border-box;
+  cursor: pointer; outline: none; user-select: none;
+}
+.desktop-mode .selx-btn:hover { border-color: var(--dim); }
+.desktop-mode .selx-btn.on { border-color: var(--pri); }
+.desktop-mode .selx-btn .tx { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktop-mode .selx-btn .ca { flex: none; color: var(--muted); font-size: 11px; }
+.desktop-mode .selx-pop {
+  position: absolute; z-index: 40; top: calc(100% + 4px); left: 0;
+  min-width: 100%; max-height: 260px; overflow-y: auto;
+  background: var(--float); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5); padding: 4px;
+}
+.desktop-mode .selx-opt {
+  display: flex; align-items: center; height: 26px; padding: 0 10px;
+  font-size: 12.5px; color: var(--text); border-radius: 4px;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.desktop-mode .selx-opt.act { background: var(--hover); }
+/* 批次 Z：选中态 = 主色 20% 叠加底 + 常规文字色 + 左 2px 主色条。
+   顺序必须在 .act 之后：选中项被 hover 时仍保持「选中」外观（hover 只作位移反馈，不抢选中语义）。 */
+.desktop-mode .selx-opt.on { background: color-mix(in srgb, var(--pri) 20%, transparent); color: var(--text); box-shadow: inset 2px 0 0 var(--pri); }
+.desktop-mode .selx-opt.empty { color: var(--muted); cursor: default; }
+
+
+/* ==== 原型全局基线（mockup 里是 *{} 与 body 规则，作用域化后补在此） ==== */
+.desktop-mode,
+.desktop-mode * { box-sizing: border-box; }
+
+/* 原生控件（select 的弹出列表 / 滚动条）由系统绘制，CSS 只能声明配色方案——
+   否则深色界面里弹出的下拉列表是亮的（"下拉菜单风格不一致"的根因之一） */
+:root:has(.desktop-mode),
+.desktop-mode { color-scheme: dark; }
+
+.desktop-mode {
+  font: 14px/1.5 -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; /* v2.8：13→14（用户反馈整体偏小） */
+  color: var(--text);
+}
+
+/* 桌面形态：页面本身不滚动（各面板内部滚动），避免 16px 滚动条压缩主区宽度 */
+:root:has(.desktop-mode),
+body:has(.desktop-mode) { margin: 0; overflow: hidden; height: 100%; }
+
+
+/* ==== 弹层（antd 保留交互；视觉对齐原型 §2.4：--float 底 / 1px border / r 6 / shadow 0 20px 60px / mh-mb-mf 内距） ====
+   注意：antd 弹层挂在 <body> 下、不在 .desktop-mode 内，故用 :has() 门控在 html 层生效。 */
+:root:has(.desktop-mode) .ant-modal-mask { background: rgba(0, 0, 0, .45); }
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-container {
+  background: var(--sh-float, #2b2d35); border: 1px solid var(--sh-border, #3a3d46);
+  border-radius: 6px; box-shadow: 0 20px 60px rgba(0, 0, 0, .5); padding: 0;
+}
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-header {
+  background: transparent; border-bottom: 1px solid var(--sh-border, #3a3d46);
+  border-radius: 6px 6px 0 0; margin: 0; padding: 12px 16px;
+}
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-title { font-size:14.5px; font-weight: 600; }
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-body { padding: 14px 16px; }
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-footer {
+  border-top: 1px solid var(--sh-border, #3a3d46); margin: 0; padding: 12px 16px;
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-footer .ant-btn + .ant-btn { margin-inline-start: 0; }
+
+:root:has(.desktop-mode) .ant-modal .ant-modal-close { color: var(--sh-muted, #8b909a); }
+
+/* 弹层密度：原型 .mb{gap:12px} + .fld label{11px/muted} → 收紧 antd Form.Item */
+:root:has(.desktop-mode) .ant-modal .ant-form-item { margin-bottom: 12px; }
+
+:root:has(.desktop-mode) .ant-modal .ant-form-item-label { padding-bottom: 3px; }
+
+:root:has(.desktop-mode) .ant-modal .ant-form-item-label > label { font-size:12px; color: var(--sh-muted, #8b909a); }
+
+/* ==== 桌面形态：残留 antd Table（参数配置等）对齐原型表格规格 ====
+   原型 table：th 11.5px/500 muted、padding 7px 12px、底 --panel；td 12.5px、padding 7px 12px、行线 #2a2c33；行悬停 --float
+   批次 I-1：th 与原生表头同批加高（38 / 12.5px / padding 5px 12px），否则「参数配置」表比其它表矮一截 */
+.desktop-mode .ant-table-wrapper .ant-table { background: transparent; font-size:13.5px; }
+
+.desktop-mode .ant-table-wrapper .ant-table-thead > tr > th {
+  background: var(--panel); color: var(--muted); font-size:12.5px; font-weight: 500;
+  height: 38px; padding: 5px 12px; border-bottom: 1px solid var(--border);
+}
+
+.desktop-mode .ant-table-wrapper .ant-table-thead > tr > th::before { display: none; }
+
+.desktop-mode .ant-table-wrapper .ant-table-tbody > tr > td {
+  padding: 7px 12px; border-bottom: 1px solid #2a2c33; background: transparent;
+}
+
+.desktop-mode .ant-table-wrapper .ant-table-tbody > tr:hover > td { background: var(--float); }
+
+.desktop-mode .ant-table-wrapper .ant-table-pagination { font-family: var(--mono); font-size:12.5px; color: var(--muted); }
+
+/* .dcard 内的裸 label（运行环境字段组）按原型 .fld label 呈现 */
+.desktop-mode .dcard > label,
+.desktop-mode .dcard > div > label { display: block; color: var(--muted); font-size:12px; margin-bottom: 3px; }
+
+/* antd 6 表格单元格内距/字号走设计令牌（:where() 包裹，直接 padding 压不过）→ 从令牌层覆盖 */
+.desktop-mode .ant-table-wrapper {
+  --ant-table-cell-padding-block: 7px;
+  --ant-table-cell-padding-block-sm: 7px;
+  --ant-table-cell-padding-block-md: 7px;
+  --ant-table-cell-padding-inline: 12px;
+  --ant-table-cell-padding-inline-sm: 12px;
+  --ant-table-cell-padding-inline-md: 12px;
+  --ant-table-cell-font-size:13.5px;
+  --ant-table-header-color: var(--sh-muted);
+  --ant-table-header-bg: var(--sh-panel);
+  --ant-table-footer-bg: var(--sh-panel);
+  --ant-table-border-color: #2a2c33;
+}
+
+/* 直接内距：4 层类特异性，压过 antd `:where(.css-x).ant-table-wrapper .ant-table ...`（3 层） */
+.desktop-mode .ant-table-wrapper .ant-table .ant-table-thead > tr > th,
+.desktop-mode .ant-table-wrapper .ant-table .ant-table-tbody > tr > td {
+  padding: 7px 12px;
+}
+
+.desktop-mode .ant-table-wrapper .ant-table .ant-table-thead > tr > th {
+  background: var(--panel); color: var(--muted); font-size:12.5px; font-weight: 500;
+  height: 38px; padding: 5px 12px; border-bottom: 1px solid var(--border);   /* 批次 I-1：表头加高 */
+}
+
+.desktop-mode .ant-table-wrapper .ant-table .ant-table-tbody > tr > td { border-bottom: 1px solid #2a2c33; }
+
+/* ==== v2.8：antd 静态方法（message / Modal.confirm）不继承 ConfigProvider 主题，默认走亮色
+   → 深色界面里冒出白底黑字。按既有策略「弹层视觉由 proto.css 覆盖」补齐。
+   注意 antd 6.6 的类名是 .ant-message-notice（**没有** -content，实测 rgb(255,255,255) 白底）。 ==== */
+:root:has(.desktop-mode) .ant-message-notice {
+  background: var(--sh-float, #2e3038); color: var(--sh-text, #d5d9e0);
+  border: 1px solid var(--sh-border, #3a3d46); border-radius: 6px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5); padding: 7px 12px;
+}
+:root:has(.desktop-mode) .ant-message-notice .ant-message-notice-title,
+:root:has(.desktop-mode) .ant-message-notice .ant-message-notice-content { color: var(--sh-text, #d5d9e0); font-size: 12.5px; }
+:root:has(.desktop-mode) .ant-message-notice-success .ant-message-notice-icon { color: var(--sh-ok, #57a773); }
+:root:has(.desktop-mode) .ant-message-notice-error .ant-message-notice-icon { color: var(--sh-err, #d07070); }
+:root:has(.desktop-mode) .ant-message-notice-warning .ant-message-notice-icon { color: var(--sh-warn, #c9a54e); }
+:root:has(.desktop-mode) .ant-message-notice-loading .ant-message-notice-icon { color: var(--sh-pri, #5b8bc4); }
+
+:root:has(.desktop-mode) .ant-modal-confirm .ant-modal-confirm-title { color: var(--sh-text, #d5d9e0); font-size: 13.5px; font-weight: 600; }
+:root:has(.desktop-mode) .ant-modal-confirm .ant-modal-confirm-content { color: var(--sh-muted, #8b909a); font-size: 12.5px; }
+:root:has(.desktop-mode) .ant-modal-confirm .ant-modal-confirm-body > .anticon { color: var(--sh-warn, #c9a54e); }
+:root:has(.desktop-mode) .ant-modal-confirm-btns .ant-btn { font-size: 12.5px; }
+:root:has(.desktop-mode) .ant-modal-confirm-btns .ant-btn-primary { background: var(--sh-pri, #5b8bc4); border-color: var(--sh-pri, #5b8bc4); color: #fff; }
+:root:has(.desktop-mode) .ant-popover .ant-popover-inner { background: var(--sh-float, #2e3038); border: 1px solid var(--sh-border, #3a3d46); }
+:root:has(.desktop-mode) .ant-popover .ant-popover-title,
+:root:has(.desktop-mode) .ant-popover .ant-popover-inner-content { color: var(--sh-text, #d5d9e0); font-size: 12.5px; }
+
+/* 原生 <select> 统一外观：干掉系统箭头 + 自绘 8px muted ▾。
+   原型里下拉与搜索框同款（.search 带 ▾），所以两者一起覆盖；值本身沿用 .search 的 muted 字色。 */
+.desktop-mode select.search,
+.desktop-mode select.sel {
+  appearance: none; -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8'><path d='M0 2h8L4 7z' fill='%238b909a'/></svg>");
+  background-repeat: no-repeat; background-position: right 8px center;
+  padding-right: 22px; cursor: pointer; height: 26px;  /* 与 .search 输入框同高（原生 select 默认 23） */
+}
+.desktop-mode select.search option,
+.desktop-mode select.sel option { background: var(--float, #2e3038); color: var(--text, #d5d9e0); }
+
+
+/* ==== 设置面板（SPEC §2.9 v2.14；来源 docs/v5g-pages-mockup.html <style>，数值 1:1 照抄） ==== */
+.desktop-mode .gear{color:var(--muted);font-size:15px;line-height:1;cursor:default}
+.desktop-mode .gear:hover{color:var(--text)}
+.desktop-mode .gear.on{color:var(--pri)}
+.desktop-mode .settings{width:560px}
+.desktop-mode .settings .mb{gap:14px}
+/* 批次 AU：原此处一条 `.settings .path{...}`（等宽 11.5 / ellipsis / max-width 392）已删 ——
+   className 侧零命中（全仓无 className="path"；config.ts 里的 `path` 是 URL 参数变量名，非类名），
+   且原型总集 body 里也从不用它（`class="path"` 0 命中）→ 双层皆死，属 v2.11 设置面板旧版的残留
+   （v2.13 起路径行改由 .setcard/.sc-v 承担）。SPEC §5 里「路径行 … + .path 等宽 11.5px」一句随之过时。 */
+.desktop-mode .settings .in.warn{border-color:#5a3a3a}
+.desktop-mode .btn.off{opacity:.45}
+.desktop-mode .sstrip{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--border);border-radius:6px;background:var(--panel2);font-size:12px;color:var(--text)}
+.desktop-mode .sstrip.warn{border-color:#5a4a2a;background:rgba(201,165,78,.08)}
+.desktop-mode .sstrip.err{border-color:#5a3a3a;background:rgba(208,112,112,.08)}
+.desktop-mode .setcard{border:1px solid var(--border);border-radius:6px;background:var(--panel2);padding:10px 12px}
+.desktop-mode .setcard .sc-h{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.desktop-mode .setcard .sc-h b{font-size:12.5px;font-weight:600}
+.desktop-mode .setcard .sc-h .mono{font-size:11px}
+.desktop-mode .setcard .sc-h .tag{margin-left:auto}
+.desktop-mode .setcard .sc-v{font-family:var(--mono);font-size:12px;color:var(--text);padding:7px 10px;margin-top:8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desktop-mode .setcard .sc-m{font-size:11.5px;color:var(--muted);margin-top:6px}
+.desktop-mode .setcard.editing{border-color:var(--pri)}
+.desktop-mode .setcard .sc-e{display:flex;gap:6px;margin-top:8px}
+.desktop-mode .setcard .sc-e .in{flex:1;font-family:var(--mono);font-size:12px;color:var(--text);background:var(--bg);border:1px solid var(--pri);border-radius:4px;padding:6px 10px}
+.desktop-mode .setrow{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text)}
+.desktop-mode .setrow .mono{font-size:11px}
+
+
+/* ==== v2.16 §0.5 脚本配置 tab：单栏折叠分段 + 底部 sticky 命令预览（原型 §0.5 <style> 1:1 照抄） ====
+   注：原型规则引用 var(--line)，但原型 :root 未定义该令牌（声明失效 → 段框无边框，与「参数配置」段的
+   内联 border-color:#3d4763 意图矛盾）→ 在产品令牌桥（上方 .desktop-mode 块）补 --line/--dim 映射。 */
+.desktop-mode .fold{background:var(--panel);border:1px solid var(--line);border-radius:6px;margin-bottom:10px;overflow:hidden}
+.desktop-mode .fold .fh{height:38px;display:flex;align-items:center;gap:10px;padding:0 14px}
+.desktop-mode .fold .fh b{font-size:13px}
+.desktop-mode .fold .fh .sm{font-size:11.5px;color:var(--muted)}
+.desktop-mode .fold .fh .ar{margin-left:auto;color:var(--muted);font-size:11.5px}
+.desktop-mode .fold .fb{padding:0 14px 14px;border-top:1px solid var(--line)}
+.desktop-mode .kvmini{display:flex;flex-wrap:wrap;gap:8px 22px;padding:10px 0 0;font-size:12px}
+.desktop-mode .kvmini > div { display:flex; align-items:center; gap:4px; }
+.desktop-mode .kvmini>div>span:first-child{color:var(--muted);font-size:11px;margin-right:6px}
+.desktop-mode .pathbar{display:flex;align-items:center;gap:10px;height:30px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;padding:0 10px;margin:10px 0 0}
+.desktop-mode .pathbar .p{font-family:var(--mono);font-size:11.5px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.desktop-mode .pathbar .cp{margin-left:auto;font-size:11.5px;color:var(--muted);border-left:1px solid var(--border);padding-left:10px;cursor:pointer;flex:none}
+/* v2.21（P1）：命令预览字色显式声明 = --text（原型同规则同步；#a8b3c2 只属终端/输出区）。 */
+.desktop-mode .cmd{background:var(--term);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:12px;color:var(--text)}
+.desktop-mode .sticky{position:sticky;bottom:0}
+/* .fb 内的字段组（原在 .dcard 内的标签/间距规则随容器迁移——字段 JSX 未动，只换容器） */
+.desktop-mode .fold .fb > div > label { display:block; color:var(--muted); font-size:12px; margin-bottom:3px }
+.desktop-mode .fold .fb > div + div { margin-top:10px }
+
+/* ==== v2.16 §1 标签芯片（SPEC §2.3：高 22 / 11px / pad 1px 8px；颜色只落色点，文字用正文色） ==== */
+.desktop-mode .dotc{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:1px}
+.desktop-mode .tag.chip{display:inline-flex;align-items:center;height:22px;padding:1px 8px;font-size:11px;color:var(--text)}
+.desktop-mode td .tag.chip + .tag.chip,
+.desktop-mode .filterbar .tag.chip + .tag.chip { margin-left:5px; }
+
+/* 批次 I-1：「标签」列表头芯片行的横向滚动条。
+   根因：Chrome/WebKit 不认 scrollbar-width:thin（实测落到默认 12px 粗条）→ 压住芯片 ✕；
+   自定义 ::-webkit-scrollbar 后条高 4px（hover 6px），内容区仍装得下 22px 芯片。 */
+.desktop-mode .taghead-x::-webkit-scrollbar { height: 4px; width: 4px; }
+.desktop-mode .taghead-x::-webkit-scrollbar-track { background: transparent; }
+.desktop-mode .taghead-x::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.desktop-mode .taghead-x::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+.desktop-mode .taghead-x:hover::-webkit-scrollbar { height: 6px; }
+
+/* ==== v2.16 §6.7 标签管理浮层（原型 §6.7 <style> 1:1 照抄；--sh-line/--sh-dim 同上） ==== */
+.desktop-mode .tagpanel{width:560px;background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:16px 18px;box-shadow:0 12px 32px rgba(0,0,0,.5)}
+.desktop-mode .tagpanel .ph{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.desktop-mode .tagpanel .ph b{font-size:13px}
+.desktop-mode .tagpanel .ph .px{margin-left:auto;color:var(--muted);font-size:13px;cursor:pointer}
+.desktop-mode .trow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
+.desktop-mode .trow .nm{flex:1;font-size:12.5px}
+.desktop-mode .trow .use{font-size:11px;color:var(--muted);margin-right:4px}
+.desktop-mode .swatches{display:flex;gap:6px}
+.desktop-mode .swatch{width:16px;height:16px;border-radius:50%;border:1px solid rgba(255,255,255,.15);cursor:pointer}
+.desktop-mode .swatch.on{box-shadow:0 0 0 2px var(--panel),0 0 0 3px var(--pri)}
+.desktop-mode .addrow{display:flex;gap:8px;align-items:center;margin-top:12px}
+.desktop-mode .tinp{flex:1;height:26px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:12px;padding:0 10px;display:flex;align-items:center;outline:none;font-family:inherit;box-sizing:border-box}
+.desktop-mode .tinp.ph{color:var(--muted)}
+.desktop-mode .trow .nm.in{background:var(--bg);border:1px solid var(--pri);border-radius:4px;padding:2px 8px;outline:none;color:var(--text);font-size:12.5px;font-family:inherit}
+.desktop-mode .tagerr{color:var(--err);font-size:11.5px;padding:4px 0 0}
+
+/* ==== 批次 Q（方案 D）：终端栏「终端类型」分段控件 ====
+   结构复用调度页的 .seg/.sg（见本文件上方同前缀规则），这里只把规格收小到 28px 终端栏：
+   容器 --panel 底 + --border 边（不新增颜色字面量），项高 24 / 字号 12，选中与悬停底 --float。
+   位置固定在「⌃ 展开 / ⌄ 收起」左侧 —— 展开态靠 .newt 的 auto 左边距顶过来，
+   收起态（无标签行）靠 wrapper 的 inline marginLeft:auto（见 GlobalTerminalBar shellSeg(true)）。
+   注意：这里刻意不复写 color —— 一旦复写，本选择器（5 类）会盖掉 `... .seg .sg.on`（4 类）的文字色。 ==== */
+.desktop-mode .gterm .gt-head .seg {
+  gap:0;background:var(--panel2);border:0;border-radius:3px;padding:0;flex:none
+}
+
+/* 批次 T（用户反馈「终端类型分段的边框和底部栏的边框重在了一起」）
+   旧规格实测：项 24 + 容器上下边框 1+1 = 26，塞进 28px 栏（border-box，内容盒 27）→ 上下仅 0.5 / 1.5px，
+   分段底边线与栏底线只隔 1.5px；又因分段底 --panel 与栏底 .gt-head{background:var(--panel)} 同色，
+   边框是唯一可见边界 → 两条线黏成一条粗线。
+   现规格（用户选定的「无描边分段」）：去掉容器边框、底改 --panel2（比栏底 --panel 亮一档，与调度页 .seg 同款手法），
+   项高 22（总高 22，栏内上下 3.5 / 2.5px 实测），两条线不再可能黏连；两版尺寸一致。
+   圆角容器 3 / 项 3：去了边框又无 padding，选中块与容器同框同高，两者圆角必须相等才不会在角上露出 --panel2 缝或外凸。
+   对照记录（已实测、未采用）：方案 A = 项 20 / 总高 22 + 保留 1px --border 边框，圆角容器 3 / 项 2（2 = 3 - 边框 1），
+   同样 3.5 / 2.5px 间隙；要回退只改下面两条声明。*/
+
+.desktop-mode .gterm .gt-head .seg .sg {
+  display:inline-flex;align-items:center;height:22px;padding:0 9px;font-size:12px;
+  border-radius:3px;cursor:pointer;white-space:nowrap
+}
+
+.desktop-mode .gterm .gt-head .seg .sg:hover {
+  background:var(--float);color:var(--text)
+}
+
+.desktop-mode .gterm .gt-head .seg .sg:focus-visible {
+  outline:1px solid var(--pri);outline-offset:-1px
+}
+
+/* 批次 Q：标签条成一格可横滚区 + 折叠按钮不换行。
+   根因：分段控件是 flex:none 的固定占位（unix 110px / windows 180px），标签多时行内空间转负，
+   原先直接落在同一 flex 行里的一切都会被压缩换行 —— 实测 8 标签时「⌃ 展开」被压成 24×56px
+   （28px 的 gt-head 里竖排溢出）。把标签收进 min-width:0 的滚动格后，压缩只作用于标签条，
+   分段控件与折叠按钮宽度恒定，标签保持自然宽度并横向滚动。
+   ponytail: 滚动条隐藏（28px 行里放不下 4px 滚动条）——多到要滚时用滚轮/触控板横滚，
+   要可见滚动条就改成标签条 hover 时 4px（同批次 I-1 的 .taghead-x 做法）。 */
+.desktop-mode .gterm .gt-head .gt-tabs {
+  display:flex;gap:6px;min-width:0;flex:0 1 auto;overflow-x:auto;overflow-y:hidden;scrollbar-width:none
+}
+
+.desktop-mode .gterm .gt-head .gt-tabs::-webkit-scrollbar {
+  height:0
+}
+
+.desktop-mode .gterm .gt-head .gt-tabs > .gt-tab {
+  flex:none
+}
+
+.desktop-mode .gterm .gt-head .gt-toggle {
+  flex:none;white-space:nowrap
+}
+
+/* 批次 Q：终端栏右端的固定件一律不参与压缩。
+   根因：flex 压缩按「基准宽 × 收缩因子」分摊，标签条再能缩也只会吃掉 ~96% 的超量，
+   剩下 4% 落回「+ 终端」/「N 个会话挂起」→ 实测 9 标签时「+ 终端」被压成两行
+   （截图 q5 里可见竖排）。把右端固定件全部 flex:none 后，超量只由标签条承担（它自己横滚）。 */
+.desktop-mode .gterm .gt-head .newt,
+.desktop-mode .gterm .gt-head .mono {
+  flex:none;white-space:nowrap
+}
+
+/* 批次 Q：空标签栏（无标签）那一行里「+ 终端」必须贴左边。
+   根因：.newt 自带 margin-left:auto（proto.css 上方，给有标签行把主按钮顶到尾部用的），
+   空行里它和分段控件的 auto 左边距平分空档 → 实测「+ 终端」落在 x=506（行中间），
+   与「左边 + 终端 / 右边 ⌃ 展开」的设计不符。只给空行那份加一个类把 auto 归零。 */
+.desktop-mode .gterm .gt-head .newt.gt-newt-left {
+  margin-left:0
+}
