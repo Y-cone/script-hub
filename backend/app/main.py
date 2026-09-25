@@ -3,7 +3,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from .database import init_db, async_session
-from .services.terminal_persist import ScrollbackFlusher
 from .routers.script import router as script_router
 from .routers.tags import router as tags_router
 from .routers.system import router as system_router
@@ -60,14 +59,10 @@ async def lifespan(app: FastAPI):
     await scheduler_service.start()
     sync_task = asyncio.create_task(_auto_sync_loop())
     # 会话空闲回收（PRD B）
-    # 终端 scrollback 30s 节流落盘（V5-C）
-    flusher = ScrollbackFlusher()
-    await flusher.start()
     reap_task = asyncio.create_task(_session_reap_loop())
     yield
     sync_task.cancel()
     reap_task.cancel()
-    await flusher.stop()  # 停止前最终落盘 scrollback
     await registry.close_all()
     scheduler_service.shutdown()
 

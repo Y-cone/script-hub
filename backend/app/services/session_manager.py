@@ -2,7 +2,7 @@
 
 抽象时机（PRD B）：先实作本机(pty)与远程(invoke_shell)两个实现，统一为 SessionHandle
 接口（send/resize/recv_callback/close）——不对会话来过度抽象。
-V5-C：新增 WinConPTYSession（Windows 本机完整 pty，pywinpty）；会话挂 scrollback 缓冲。
+V5-C：新增 WinConPTYSession（Windows 本机完整 pty，pywinpty）。
 """
 import asyncio
 import os
@@ -32,7 +32,6 @@ except ImportError:
 
 from ..models.device import Device
 from ..services.ssh_service import RemoteOutputDecoder, encode_terminal_input, terminal_input_codec
-from .terminal_persist import ScrollbackBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +94,6 @@ class SessionHandle:
         self.output_cb = output_cb  # 回调：接收到的 shell 输出
         self.last_active = time.time()
         self.closed = False
-        self.scrollback = ScrollbackBuffer()  # V5-C：回滚缓冲（持久化数据源）
 
     def touch(self):
         self.last_active = time.time()
@@ -112,7 +110,6 @@ class SessionHandle:
 
     def _emit(self, text: str):
         self.touch()
-        self.scrollback.append(text)  # V5-C：同步入环形缓冲（持久化数据源）
         try:
             self.output_cb(text)
         except Exception:

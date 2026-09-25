@@ -18,6 +18,7 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const xtermRef = useRef<XTerm | null>(null)
+  const fitRef = useRef<FitAddon | null>(null)
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -41,6 +42,7 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
     xterm.open(containerRef.current)
     fitAddon.fit()
     xtermRef.current = xterm
+    fitRef.current = fitAddon
 
     // WS 连接（会话变量全在 URL 查询参数；建连成功后服务端首帧 ready）
     // 尺寸必须用 fit 后的真实值：写死 80×24 会让 pty 按 80×24 布局（远端 ConPTY 按 24 行
@@ -136,9 +138,45 @@ export default function TerminalTab({ deviceId, shell, onError }: Props) {
       clearTimeout(fitTimer)
       xterm.dispose()
       xtermRef.current = null
+      fitRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deviceId, shell])
+
+  // 批次 BF：容器尺寸一变就重新 fit。
+  // 原实现只有「mount 后 100ms 那一次」fit，容器变高变矮（底栏拖拽/折叠/窗口 resize/切标签页）
+  // 它都无感 —— 行列数就此与实际容器不符，pty 也跟着错。
+  // 用 ResizeObserver 而非在调用处各写一处 fit：底层组件一次修好，所有使用方都受益。
+  // 过渡期间不 fit：底栏折叠/展开是 160ms 的 height 过渡，中途每次回调量到的都是中间高度，
+  // 最矮会被算成 1 行（proposeDimensions: rows = max(1, floor(h/cellH))），把 pty 也 resize 成 1 行。
+  // 判定用 getAnimations()（CSS 过渡在运行时会出现在里面），跳过就 60ms 后再看一次，结束即 fit。
+  // ponytail: 轮询式「等过渡结束」，不引状态机；代价是折叠期间多几次空转定时器。
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    let timer = 0
+    const refit = () => {
+      // 容器没高度就别 fit：折叠态 body 是 0（隐藏标签 display:none 也是 0），
+      // 而 proposeDimensions 的行数下限是 1 —— fit 只会把 xterm 和 pty 一起改成 1 行，
+      // 展开后还要再改回来（pty 被反复 resize，TUI 会重画）。等它有高度时 RO 会再叫我。
+      if (el.clientHeight < 20) return
+      const bar = el.closest('.gterm') as HTMLElement | null
+      if (bar?.getAnimations && bar.getAnimations().length) {
+        timer = window.setTimeout(refit, 60)
+        return
+      }
+      fitRef.current?.fit()
+    }
+    const ro = new ResizeObserver(() => {
+      clearTimeout(timer)
+      timer = window.setTimeout(refit, 0)
+    })
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      clearTimeout(timer)
+    }
+  }, [])
 
   // 批次 Z：内距归零 —— 终端四周留白改由容器语义选择器承担（桌面底栏 `.desktop-mode .gterm .xterm`；
   // Web 终端页在调用处补 padding:8）。此处再留 8px 会与容器内距叠加成「上 14 / 左 20」的黑边，

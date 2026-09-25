@@ -199,36 +199,27 @@ html.desktop-root .ant-select-disabled .ant-select-content,
   opacity: .45;
   cursor: not-allowed;
 }
-/* 终端底栏展开/折叠：高度过渡 160ms ease-out（SPEC §3.2 动效表 / §5 验收项）
-   批次 BE：原规则挂在 `.desktop-mode .gt-bar` —— 全仓无任何元素带 .gt-bar（批次 AU 已实测），
-   规则从未生效，实测 transition=0s（瞬变）。**改造到真实元素 `.gterm`**：高度实际变化的就是它
-   （实测折叠 29px ↔ 展开 613px）。
-   折叠机制（读码 + 实测确认）：原折叠是 `{!collapsed && <div className="gt-body">}` 条件渲染，
-   卸载那一刻高度就没了、无从插值；`.gterm` 自身高度又是内容驱动的 auto（1px 上边 + 28px 头 + body），
-   auto 不可插值 —— 故 ① 组件改为**始终渲染 .gt-body**，② 折叠态改用 `.gterm` 的 **max-height** 夹到
-   29px（= 1px 上边 + 28px 头，与既有收起态实测值一致），③ 过渡挂 max-height。
-   为何不用显式 height：`.gterm` 自然高由 body 内容驱动（body 实测 584 = xterm 自锁 24 行），写死高度
-   会改掉既有展开几何（SPEC §5-6 记录展开态为 flex 撑满 421/613px）—— max-height 是唯一不动几何的可插值方案（显式 height 只走这条路）。
-   为何不用 `.collapsed` 类名：proto.css:574 的 `.gterm.collapsed .gt-body{display:none}` 一旦被激活，
-   body 立即消失 → 高度当场掉到 29 → 过渡被打断（本轮实测），故另用 `.gt-collapsed`，proto.css 保持 1:1 不改。
-   端点 900px：远大于实测自然高 613px（留 47% 余量，换字体/缩放变高也不会夹掉内容）；代价是
-   「可见行程短于 160ms」= max-height 夹法的固有误差，实测值见批次 BE 报告。 */
+/* 终端底栏高度：展开态 = 窗口高的 1/5（默认）/ localStorage 存档值，折叠态 29px。
+   ① 高度由内联 `height` 驱动（组件 style={{height: collapsed?29:h}}），transition 挂 `height`；
+   ② 不用 `.collapsed` 类名——proto.css:574 的 `display:none` 会让高度当场掉到 29、打断过渡，
+      故另用 `.gt-collapsed`，proto.css 保持 1:1 不动；
+   ③ 过渡中途不该去 fit：由 TerminalTab 的 ResizeObserver 检测到 `.gterm` 上还跑着 height 过渡就跳过、过渡后再 fit。
+   历史沿革（BE 的 `.gt-bar` 死选择器、`.gt-body` 584 钉）见 docs/V5G-UI-SPEC.md。 */
 .desktop-mode .gterm {
-  max-height: 900px;
+  position: relative;              /* .gt-grip 的定位参照 */
+  flex: none;                      /* 高度由内联 style 指定，别被列向 flex 压缩 */
   overflow: hidden;
-  transition: max-height 160ms ease-out;
+  transition: height 160ms ease-out;
 }
-.desktop-mode .gterm.gt-collapsed { max-height: 29px; }
+/* 拖动期间关掉过渡：否则每帧高度都走 160ms 缓动，跟手有延迟（松手即恢复，折叠/展开动效不变） */
+.desktop-mode .gterm.gt-dragging { transition: none; }
 .desktop-mode .gterm .gt-head { flex: none; }   /* 折叠态下别被 flex 压缩成 25.75px（实测），收起态必须仍是 1px 边 + 28px 头 = 29px */
-/* body 的最小高必须钉住 584px（= 实测展开自然高，xterm 24 行 × 24.33）：
-   `.gterm` 一旦被 max-height 夹住，它的高度对内部 flex 就变成「确定值」→ body（flex:1 basis 0%）
-   会被撑成「剩余空间」，而 xterm 的 fit 是挂载后 100ms 才跑的 —— 落在过渡中途就把行列数算成
-   1 行 / 32px 并自此锁死（本轮实测：加钉前展开态 gterm=61 / 1 行，钉住后 613 / 24 行 = 与改前一致）。
-   钉死后 body 恒 584、xterm 量到的容器恒 584，与过渡状态无关。
-   数值取「当前实际渲染值」而非 SPEC §2.5 的 228：不引入任何几何变化（改前实测也是 584），
-   228 是产品口径的改动，交调度中心裁决（见 BE 报告）。本机若字体变小/变大，此值只是下限，
-   内容更高时 body 取内容高，不会被裁。 */
-.desktop-mode .gterm .gt-body { min-height: 584px; }
+/* 批次 BF：上边缘拖拽热区（5px 绝对定位，不占高——折叠态仍必须是 29px） */
+.desktop-mode .gterm .gt-grip {
+  position: absolute; top: 0; left: 0; right: 0; height: 5px; z-index: 5;
+  cursor: ns-resize; background: var(--pri); opacity: 0; transition: opacity 120ms;
+}
+.desktop-mode .gterm .gt-grip:hover { opacity: .4; }
 /* 只夹高度不隐藏 → 被裁到 0 的终端仍留住键盘焦点（WebKit 2.52.6 实测 focusAfterClamp=true），
    输入会打进看不见的终端；visibility:hidden 才会让浏览器夺焦（实测 activeElement → BODY）。
    延迟到过渡末帧再隐藏，否则 t=0 就把终端藏掉、只剩空盒子在缩。 */
