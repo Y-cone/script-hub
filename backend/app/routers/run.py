@@ -7,7 +7,8 @@ from ..models.run_history import RunHistory
 from ..models.device import Device
 from ..schemas.run import RunRequest, RunResponse, RunHistoryListOut
 from typing import Optional
-from ..services.executor import executor, resolve_runner, spawn_background
+from ..services.executor import (executor, resolve_runner, spawn_background,
+                                 validate_parameters, normalize_parameters)
 from ..services.envcheck import check_environment
 import json
 import sys
@@ -80,12 +81,22 @@ async def run_script(
     
     # 先创建 run_history 记录
     # V5-G（SPEC §2.4）：Shell 覆盖的平台合法性前置校验（executor 内仍是权威校验，此处只为给出清晰 400）
+    # + N6：还要校验 shell 与脚本类型同族（.bat 不能用 bash 跑、.py 不能用 powershell 跑）
     if request.shell:
         is_win_target = (device.type == "windows") if device else (sys.platform == "win32")
         try:
-            resolve_runner(request.shell, is_win_target)
+            resolve_runner(request.shell, is_win_target, script.category)
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    # N1：入参类型按脚本元数据（parser 产物）校验——int 型传非数字此前被 200 接受，脚本跑到
+    # argparse 才炸；在分派前拦掉，错误里带参数名（本机/远程共用同一份命令构造）
+    # BQ②：裸键归一化——`count` 与元数据 `--count` 匹配；未知键 → 400（此前裸键绕过校验直落 argparse）
+    try:
+        request.parameters = normalize_parameters(script, request.parameters or {})
+        validate_parameters(script, request.parameters)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
     command = (executor._build_command(script, request.parameters or {}, shell=request.shell)
                if not device else f"ssh {device.host}: {script.name}")

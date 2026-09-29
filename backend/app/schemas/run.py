@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, Dict, Any, Literal
 
@@ -8,6 +8,11 @@ ShellName = Literal["bash", "sh", "zsh", "cmd", "powershell", "pwsh", "python3"]
 
 
 class RunRequest(BaseModel):
+    # N1（批次 BM）：未知字段一律 422——`params`/`commands` 这类拼错的键此前被静默忽略，
+    # 用户以为传了参数，实际脚本收到的是一份空参数表。字段全部取自前端 RunRequest 接口
+    # （frontend/src/services/api.ts），前端发送的键不超出下列集合。
+    model_config = ConfigDict(extra="forbid")
+
     script_id: int
     parameters: Optional[Dict[str, Any]] = None
     working_dir: Optional[str] = None

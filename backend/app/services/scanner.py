@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime
 import logging
+import re
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.script import Script
@@ -16,6 +17,17 @@ EXTENSION_MAP = {
 }
 
 SUPPORTED_EXTENSIONS = set(EXTENSION_MAP.keys())
+
+# 高危脚本自动识别（大小写不敏感；手动标记优先——扫描只对 dangerous 为 NULL 的行写 True）
+_DANGEROUS_PATTERNS = re.compile(
+    r"shutdown\s+/|format\s+[a-z]:|del\s+/[fqs]|rd\s+/s|rm\s+-[rf]{1,2}\b|mkfs|"
+    r"dd\s+if=|reg\s+delete|taskkill\s+/f",
+    re.IGNORECASE,
+)
+
+
+def _is_dangerous(text: str) -> bool:
+    return bool(_DANGEROUS_PATTERNS.search(text))
 
 
 async def scan_scripts(db: AsyncSession) -> dict:
@@ -54,6 +66,9 @@ async def scan_scripts(db: AsyncSession) -> dict:
                 script.relative_path = rel_path
                 script.extension = ext
                 script.category = category
+                # 自动高危标记：只翻「尚未手动标记」的行（False=用户明确说不高危，保持不动）
+                if not script.dangerous and _is_dangerous(filepath.read_text(errors="replace")):
+                    script.dangerous = True
                 script.updated_at = now
                 updated += 1
         else:
@@ -63,6 +78,7 @@ async def scan_scripts(db: AsyncSession) -> dict:
                 relative_path=rel_path,
                 extension=ext,
                 category=category,
+                dangerous=_is_dangerous(filepath.read_text(errors="replace")),
                 created_at=now,
                 updated_at=now,
             )
@@ -70,9 +86,20 @@ async def scan_scripts(db: AsyncSession) -> dict:
             added += 1
 
     # Remove scripts whose files no longer exist
-    missing = [s for abs_path, s in existing.items() if abs_path not in disk_files]
-    # 批量删除保护闸：待删数超过阈值视为 root 异常（如 script_root_dir 被切换/抖动），
-    # 跳过全部删除，避免旧 root 下脚本及其关联数据被静默清空
+    # 不属于当前 root 的条目（前次 root 切换残留）不可能出现在新 root 的磁盘扫描里，
+    # 直接删除、不走保护闸——root 切换是合法的大面积变更；保护闸只对当前 root 内的消失生效
+    missing = []
+    for abs_path, s in existing.items():
+        if abs_path in disk_files:
+            continue
+        # ponytail: 字符串前缀比较在 Windows 大小写不一致时会误入 stale 桶，实害为零（也是删），暂不处理
+        if Path(abs_path).is_relative_to(root):
+            missing.append(s)
+        else:
+            await db.delete(s)
+            removed += 1
+    # 批量删除保护闸：当前 root 内待删数超过阈值视为 root 异常/大面积误判，
+    # 跳过全部删除，避免脚本及其关联数据被静默清空
     if len(missing) > max(5, len(existing) * 0.5):
         logger.warning(
             f"本次扫描待删除 {len(missing)}/{len(existing)} 个脚本，超过阈值，"

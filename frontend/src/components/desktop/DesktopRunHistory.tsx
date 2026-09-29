@@ -200,10 +200,10 @@ export default function DesktopRunHistory() {
                 {selRow.output || '（无输出）'}
               </div>
             </div>
-            <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <span className="btn" style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
+            <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <span className="btn" style={{ flex: 1, minWidth: 96, textAlign: 'center', cursor: 'pointer' }}
                 onClick={() => navigator.clipboard?.writeText(selRow.output || '')}>复制输出</span>
-              <span className="btn pri" style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }}
+              <span className="btn pri" style={{ flex: 1, minWidth: 96, textAlign: 'center', cursor: 'pointer' }}
                 onClick={async () => {
                   const { runScript } = await import('../../services/api')
                   await runScript({ script_id: selRow.script_id, parameters: JSON.parse(selRow.parameters || '{}') } as any)

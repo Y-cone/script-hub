@@ -21,19 +21,24 @@ rm -rf build
 "$PYINSTALLER" scripthub-server.spec --noconfirm 2>&1 | tail -3
 [ -f dist/scripthub-server ] || { echo "[sidecar] ❌ 构建失败：dist/scripthub-server 不存在"; exit 1; }
 
-# 1) externalBin：按现有文件名覆盖（Tauri 要求 <name>-<target-triple>）。
-#    用通配匹配现存文件，这样跨平台（linux-gnu / msvc / apple-darwin）都不用改脚本。
+# 1) externalBin：目标三件套逐个检查，**缺失也 copy**（此前只覆盖已有文件——binaries/ 里
+#    只有 linux-gnu 占位时，msvc 的 .exe 不会被同步 → cargo 报 resource path doesn't exist）。
+#    按平台出正确的产物名：Windows triple 要 .exe（linux 上 dist/ 是无后缀 ELF，直接改名拷贝）。
 mkdir -p "$TB/binaries"
-shopt -s nullglob
-found=0
-for f in "$TB/binaries"/scripthub-server-*; do
-  case "$f" in
-    *.exe) cp -f "$HERE"/dist/scripthub-server.exe "$f" 2>/dev/null && found=1 ;;
-    *)     cp -f "$HERE/dist/scripthub-server" "$f" && found=1 ;;
+TRIPLES="x86_64-unknown-linux-gnu x86_64-pc-windows-msvc aarch64-apple-darwin"
+for triple in $TRIPLES; do
+  case "$triple" in
+    *windows*) dst="$TB/binaries/scripthub-server-$triple.exe" ; src="$HERE/dist/scripthub-server.exe" ;;
+    *)         dst="$TB/binaries/scripthub-server-$triple"    ; src="$HERE/dist/scripthub-server" ;;
   esac
+  # 跨 triple 的产物本机不存在（Linux 构建没有 .exe）→ 跳过该占位，已有旧占位保留。
+  # 只有当前平台的产物必须拷成功，否则 cargo 阶段必炸。
+  if [ ! -f "$src" ]; then
+    echo "[sidecar] 跳过 $triple（本机无 $(basename "$src")）"
+    continue
+  fi
+  cp -f "$src" "$dst"
 done
-shopt -u nullglob
-[ "$found" -eq 1 ] || echo "[sidecar] ⚠️ binaries/ 下没有 scripthub-server-* ，跳过 externalBin 同步"
 
 # 2) release 目录：开发时壳直接从同目录读 sidecar（不是 Tauri 打包路径）。
 #    目标目录此时可能还不存在（首次构建），忽略失败。

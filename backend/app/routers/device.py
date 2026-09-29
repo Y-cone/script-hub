@@ -6,7 +6,7 @@ from ..database import get_db
 from ..models.device import Device
 from ..models.schedule import Schedule
 from ..schemas.device import DeviceOut, DeviceCreate, DeviceUpdate, TestConnResult
-from ..services.secret_store import set_secret, delete_secret
+from ..services.secret_store import set_secret, delete_service
 from ..services.ssh_service import pool, build_client, remote_probe, _service_name
 from ..services.ssh_service import cache_probe, fresh_entry
 
@@ -112,7 +112,8 @@ async def delete_device(device_id: int, db: AsyncSession = Depends(get_db)):
     if not dev:
         raise HTTPException(404, "Device not found")
     await pool.close(device_id)
-    delete_secret(_service_name(dev.id), dev.username)
+    # N10：service 下所有 username 条目一并删（更新过用户名会留旧条目），不只删当前这条
+    delete_service(_service_name(dev.id))
     await db.delete(dev)
     await db.commit()
     return {"message": "已删除"}

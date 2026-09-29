@@ -301,6 +301,7 @@ html.desktop-root .ant-select-disabled .ant-select-content,
   border-radius: 13px;
   font-size: 13px;
   color: var(--sh-text);
+  flex-shrink: 0; /* K4-补（NR3-1）：右端控件组（devpick→gear→wcb）窄窗整体不缩，缩的是中间搜索框或顶栏横向滚动 */
 }
 .desktop-mode .topbar .devpick b {
   color: var(--sh-text);
@@ -316,6 +317,7 @@ html.desktop-root .ant-select-disabled .ant-select-content,
 .desktop-mode .topbar .gear {
   width: 26px;
   height: 26px;
+  flex-shrink: 0; /* K4-补（NR3-1）：窄窗被 flex 压成椭圆 */
   display: grid;
   place-items: center;
   border: 1px solid var(--sh-border);
@@ -327,10 +329,11 @@ html.desktop-root .ant-select-disabled .ant-select-content,
 }
 .desktop-mode .topbar .gear:hover { color: var(--sh-text); border-color: var(--sh-pri); }
 .desktop-mode .topbar .gear.on { color: var(--sh-pri); border-color: var(--sh-pri); }
-.desktop-mode .wcb { display: flex; align-items: center; gap: 2px; margin-left: 10px; }
+.desktop-mode .wcb { display: flex; align-items: center; gap: 2px; margin-left: 10px; flex-shrink: 0; } /* K4-补（NR3-1）：窗口三键窄窗被压到不可见 */
 .desktop-mode .wcb i {
   width: 44px;
   height: 26px;
+  flex-shrink: 0; /* K4-补（NR3-1） */
   display: grid;
   place-items: center;
   border-radius: 4px;

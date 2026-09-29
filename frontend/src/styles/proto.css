@@ -107,28 +107,12 @@
   display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px
 }
 
-.desktop-mode .topbar {
-  background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 12px
-}
-
-.desktop-mode .logo {
-  font-weight:600;font-size:14px;color:var(--text)
-}
-
-.desktop-mode .nav {
-  display:flex;gap:2px
-}
-
-.desktop-mode .nav .it {
-  padding:5px 12px;border-radius:4px;color:var(--muted);font-size:13.5px
-}
+/* 【冗余清理】原 110-153 行的 topbar/nav/search 第一段定义已并入下方 288 行起的桌面实现段
+   （此前 K4-补在两段各打一层补丁导致重复；生效值以桌面实现段为准）。
+   本段仅保留桌面实现段没有的三条：.nav .it.on 高亮、.devpick 展示胶囊、.devpick b。 */
 
 .desktop-mode .nav .it.on {
   background:var(--float);color:var(--text)
-}
-
-.desktop-mode .topbar .search {
-  width:240px;margin-left:8px
 }
 
 .desktop-mode .devpick {
@@ -275,15 +259,32 @@
 }
 
 .desktop-mode .topbar {
-  height:40px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 12px
+  height:40px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;padding:0 12px;
+  /* K4-补：子项全部不缩后，极窄窗容不下 → 顶栏横向滚动而不是压扁变形
+     NR3-1 修正：右端 wcb（窗口三键）不允许被滚出视口——search 允许缩（min-width 兜底），
+     nav 极窄时自身收缩+内部横向滚动，只有搜索框之外仍放不下才横向滚动 */
+  overflow-x:auto;overflow-y:hidden;scrollbar-width:none
 }
 
 .desktop-mode .logo {
-  font-weight:600;font-size:14px
+  font-weight:600;font-size:14px;flex-shrink:0
 }
 
+/* K4-补（R3 后真机复现）：窄窗顶栏挤压——nav 项文字换行(h=49)、search 被顶出。
+   根因：.it 与 .search 都是 flex 子项无 shrink 保护，空间不足时文字折行变形。
+   修：nav/it/search 全部不缩+文字不换行；仍不够时顶栏整体横向滚动（topbar overflow-x:auto）。
+   NR3-1 迭代：nav 是顶栏最大占用（~358px），极窄窗（<960）时允许 nav 自身收缩+横向滚动
+   （单行不折行），把 wcb 窗口三键保在视口内。 */
+.desktop-mode .nav {
+ display:flex;gap:2px;white-space:nowrap;min-width:0;overflow-x:auto;scrollbar-width:none
+}
 .desktop-mode .nav .it {
-  padding:4px 12px;border-radius:4px;color:var(--muted);font-size:13.5px
+  padding:4px 12px;border-radius:4px;color:var(--muted);font-size:13.5px;white-space:nowrap;flex-shrink:0
+}
+.desktop-mode .topbar .search {
+  width:240px;margin-left:8px;white-space:nowrap;
+  /* NR3-1：search 允许缩（min-width 保底 140）为右端 wcb 让位——flex-shrink:0 会把三键顶出视口 */
+  flex-shrink:1;min-width:140px
 }
 
 .desktop-mode .search {
@@ -296,7 +297,7 @@
 }
 
 .desktop-mode .btn {
-  display:inline-block;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:13px;cursor:default
+  display:inline-block;padding:4px 12px;border-radius:4px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:13px;cursor:default;white-space:nowrap;flex-shrink:0
 }
 
 .desktop-mode .btn.danger {
@@ -308,8 +309,13 @@
 }
 
 .desktop-mode .filterbar {
-  /* 批次 M-7：顶部 10→16 / 左右 14→18（内容不贴窗口边） */
-  display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--border)
+  /* 批次 M-7：顶部 10→16 / 左右 14→18（内容不贴窗口边）
+     K4-补（R3 后真机复现）：窄窗 chips/子项被压扁（tag 30px、空元素 0px）→ 允许换行 + 子项不缩 */
+  display:flex;align-items:center;gap:10px 8px;flex-wrap:wrap;padding:16px 18px;border-bottom:1px solid var(--border)
+}
+
+.desktop-mode .filterbar > * {
+  flex-shrink:0
 }
 
 .desktop-mode .sel {
@@ -419,7 +425,9 @@
 }
 
 .desktop-mode .rt .v {
-  font-family:var(--mono);font-size:12.5px;color:var(--muted)
+  font-family:var(--mono);font-size:12.5px;color:var(--muted);
+  /* BO②：超长版本串兜底——省略 + hover 原生 title（DesktopSystemInfo.tsx 渲染层补 title） */
+  max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap
 }
 
 .desktop-mode .kv {

@@ -37,3 +37,4 @@ data/terminal_sessions.json
 Thumbs.db
 data/runs/
 data/scripts/
+dist-win/

@@ -538,8 +538,8 @@ export default function DesktopScriptLibrary() {
               </span>
             </div>
             <div className="kv"><span>定时任务</span><span>{sched.total} 个{sched.enabled ? ` · ${sched.enabled} 启用` : ''}</span></div>
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-              <span className="btn pri" style={{ flex: 1, textAlign: 'center', cursor: 'pointer' }} onClick={() => doRun(selMeta)}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+              <span className="btn pri" style={{ flex: 1, minWidth: 96, textAlign: 'center', cursor: 'pointer' }} onClick={() => doRun(selMeta)}>
                 {running ? '执行中…' : '▷ 执行'}
               </span>
               <span className="btn" style={{ cursor: 'pointer' }} onClick={() => navigate(`/schedules?script_id=${selMeta.id}`)}>定时</span>

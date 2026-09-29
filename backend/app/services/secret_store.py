@@ -98,3 +98,22 @@ def delete_secret(service: str, username: str):
     if service in data and username in data[service]:
         del data[service][username]
         _save_file_secrets(data)
+
+
+def delete_service(service: str):
+    """删除某 service 下**所有** username 的凭据条目（N10：删设备时清孤儿凭据）。
+
+    keyring 无枚举 API，但文件兜底里有全量记录——历史 username（更新设备用户名后
+    keyring 里的旧条目）都能从文件里找到并逐个删。
+    """
+    usernames = set(_file_secrets().get(service, {}).keys())
+    if _keyring:
+        try:
+            # get_credential 是 keyring 标准扩展 API，有后端支持时兜底文件外的孤儿条目
+            cred = _keyring.get_credential(service, None)
+            if cred is not None and cred.username:
+                usernames.add(cred.username)
+        except Exception:
+            pass
+    for u in usernames:
+        delete_secret(service, u)

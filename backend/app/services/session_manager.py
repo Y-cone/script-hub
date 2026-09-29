@@ -320,9 +320,11 @@ class WinConPTYSession(SessionHandle):
         if self.closed or not self.pty_proc:
             return
         try:
-            self.pty_proc.set_size(rows, cols)
-        except Exception:
-            pass
+            # pywinpty 2.x 的 API 是 setwinsize(rows, cols)——旧代码 set_size 是不存在的
+            # 方法，AttributeError 曾被静默吞掉导致 resize 完全失效（真机 mode con 实证）
+            self.pty_proc.setwinsize(rows, cols)
+        except Exception as e:
+            logger.warning(f"ConPTY resize 失败 ({cols}x{rows}): {e}")
 
     def close(self):
         if self.closed:

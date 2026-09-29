@@ -7,6 +7,7 @@ use std::process::Command;
 
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -14,6 +15,9 @@ use tauri_plugin_shell::ShellExt;
 
 /// sidecar pid（退出时杀进程树）
 struct SidecarPid(Mutex<Option<u32>>);
+
+/// 主动退出路径置位（托盘 quit / Destroyed 钩子），Terminated 据此不再触发壳退出
+static SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
 
 /// 从 8001 起探测空闲端口（PRD 4.B：最多 +20）
 fn pick_port() -> u16 {
@@ -141,6 +145,7 @@ fn main() {
             *app.state::<SidecarPid>().0.lock().unwrap() = Some(pid);
             println!("[shell] sidecar pid={pid} port={port} data={}", data_dir.display());
 
+            let app3 = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 while let Some(event) = rx.recv().await {
                     match event {
@@ -149,6 +154,24 @@ fn main() {
                         }
                         CommandEvent::Stderr(line) => {
                             eprintln!("[sidecar:err] {}", String::from_utf8_lossy(&line));
+                        }
+                        CommandEvent::Terminated(_) => {
+                            if SHUTTING_DOWN.load(Ordering::SeqCst) {
+                                println!("[sidecar] terminated (主动退出路径，忽略)");
+                                continue;
+                            }
+                            // sidecar 意外死亡（崩溃/被杀）→ 壳同步退出，不留孤儿窗口（V5-D 收尾）
+                            eprintln!("[sidecar] terminated unexpectedly, exiting shell");
+                            if let Some(pid) = app3
+                                .state::<SidecarPid>()
+                                .0
+                                .lock()
+                                .unwrap()
+                                .take()
+                            {
+                                kill_tree(pid);
+                            }
+                            app3.exit(1);
                         }
                         _ => {}
                     }
@@ -201,6 +224,7 @@ fn main() {
                     }
                     "quit" => {
                         // 真退出：杀 sidecar 进程树后退出
+                        SHUTTING_DOWN.store(true, Ordering::SeqCst);
                         if let Some(pid) = app.state::<SidecarPid>().0.lock().unwrap().take() {
                             kill_tree(pid);
                         }
@@ -221,6 +245,7 @@ fn main() {
                 }
                 // 窗口销毁（真退出路径）→ 兜底杀 sidecar（PRD 3.1 优雅退出）
                 tauri::WindowEvent::Destroyed => {
+                    SHUTTING_DOWN.store(true, Ordering::SeqCst);
                     let pid = window
                         .app_handle()
                         .state::<SidecarPid>()

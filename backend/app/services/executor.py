@@ -1,6 +1,6 @@
 import asyncio
 import codecs
-import shutil
+import locale
 import subprocess
 import signal
 import os
@@ -16,11 +16,30 @@ from ..database import async_session
 from sqlalchemy import select
 import logging
 
+from .win_runtime import resolve_python
+
 logger = logging.getLogger(__name__)
 
 # 输出日志目录（单一来源：config.DATA_DIR，支持 SCRIPTHUB_DATA_DIR 覆盖）
 from ..config import DATA_DIR
 RUNS_DIR = DATA_DIR / "runs"
+
+# DB 里保存的执行输出：头部 200 行 + 尾部 800 行（批次 BM ⑦/N3）。
+# 此前只留尾部 1000 行：2000 行输出的**首部丢失**，「首行」（`$ <命令>` 与脚本开头的报错）永远看不到。
+# 日志文件仍是完整输出（_write_log 逐行追加，不受此限）。
+DB_HEAD_LINES = 200
+DB_TAIL_LINES = 800
+
+
+def _db_output(full: str) -> str:
+    """超长输出 → 头部 200 行 + 省略标记 + 尾部 800 行；未超长原样返回。"""
+    lines = full.split("\n")
+    if len(lines) <= DB_HEAD_LINES + DB_TAIL_LINES + 1:
+        return full
+    omitted = len(lines) - DB_HEAD_LINES - DB_TAIL_LINES
+    return "\n".join(
+        lines[:DB_HEAD_LINES] + [f"... [省略 {omitted} 行] ..."] + lines[-DB_TAIL_LINES:]
+    )
 
 
 def _win_abs(path: str) -> str:
@@ -44,8 +63,13 @@ SHELL_RUNNERS: Dict[str, Dict[str, str]] = {
 }
 
 
-def resolve_runner(shell: Optional[str], is_win: bool) -> Optional[str]:
-    """Shell 覆盖 → 运行器前缀；None/空 = 未指定（调用方走 category 默认分派）。"""
+def resolve_runner(shell: Optional[str], is_win: bool, category: Optional[str] = None) -> Optional[str]:
+    """Shell 覆盖 → 运行器前缀；None/空 = 未指定（调用方走 category 默认分派）。
+
+    N6：白名单只保证「这个 shell 在该平台存在」，不保证「这个 shell 能跑这类脚本」——
+    此前 `POST /api/run {脚本=hello.bat, shell:"bash"}` 一路放行并执行 `bash hello.bat`。
+    给了 category 就必须同族（SHELL_CATEGORIES），跨类型一律 ValueError（路由回 400）。
+    """
     if not shell:
         return None
     table = SHELL_RUNNERS["win32" if is_win else "unix"]
@@ -54,7 +78,26 @@ def resolve_runner(shell: Optional[str], is_win: bool) -> Optional[str]:
             f"Shell「{shell}」不适用于{'Windows' if is_win else 'Unix' } 目标"
             f"（可选：{', '.join(table)}）"
         )
+    if category and category not in SHELL_CATEGORIES[shell]:
+        allowed = "、".join(sorted(SHELL_CATEGORIES[shell]))
+        raise ValueError(
+            f"Shell「{shell}」只能给 {allowed} 类脚本用（当前脚本类型：{category}）"
+            f"——Shell 覆盖只在同族解释器之间生效，不能跨脚本类型。"
+        )
     return table[shell]
+
+
+# Shell 覆盖的「同族」定义（值 = 允许用该 shell 覆盖的脚本 category）：
+# bash/sh/zsh → shell 类；cmd → bat 类；powershell/pwsh → powershell 类；python3 → python 类。
+SHELL_CATEGORIES: Dict[str, set] = {
+    "bash": {"shell"},
+    "sh": {"shell"},
+    "zsh": {"shell"},
+    "cmd": {"bat"},
+    "powershell": {"powershell"},
+    "pwsh": {"powershell"},
+    "python3": {"python"},
+}
 
 
 # 目标 Windows 的 ANSI 代码页：cmd 的批处理解析器按它读 .bat/.cmd（不是控制台的 UTF-8）。
@@ -71,6 +114,29 @@ def _win_ansi_codec() -> str:
     except LookupError:
         logger.warning("%s=%r 不是合法编码名，回落 cp936", WIN_ANSI_CODEC_ENV, codec)
         return "cp936"
+
+
+def _local_output_codec(category: Optional[str] = None) -> str:
+    """本机子进程输出的解码编码（批次 BM ③⑤；BQ ①按命令类别区分）。
+
+    Windows 本机：cmd/PowerShell 经管道回传的不是 UTF-8，而是**控制台代码页**（简中 = cp936）——
+    按 UTF-8 解会满屏替换符（U+FFFD），.ps1 的中文变成 `?`。取系统 ANSI 代码页（可用
+    环境变量 SCRIPTHUB_WIN_ANSI_CODEC 覆盖，与目标机转码共用同一个旋钮），解码仍带 errors="replace"。
+    但 **python/bash 自己发 UTF-8**（Git Bash 一律 UTF-8；python 由启动 env 注入
+    PYTHONIOENCODING=utf-8，见 execute_script）——按 GBK 解会把 UTF-8「中文」解成 `涓枂`。
+    category=None 维持旧行为（ANSI）；远程路径不经过这里。
+    Unix 本机：一律 UTF-8（行为与改动前完全一致）。
+    """
+    if sys.platform != "win32":
+        return "utf-8"
+    if category in ("python", "shell"):
+        return "utf-8"
+    codec = os.environ.get(WIN_ANSI_CODEC_ENV) or locale.getpreferredencoding(False) or "utf-8"
+    try:
+        codecs.lookup(codec)
+        return codec
+    except LookupError:
+        return _win_ansi_codec()
 
 
 def _to_crlf(data: bytes) -> bytes:
@@ -203,7 +269,7 @@ def win_script_cmd(category: str, remote_script: str, arg_str: str, remote_scrip
     rdir = _win_abs(remote_script_dir)
     # V5-G（SPEC §2.4）：显式 Shell 覆盖优先于 category 默认分派
     if shell:
-        runner = resolve_runner(shell, True)
+        runner = resolve_runner(shell, True, category)
         if shell == "bash" and not has_bash:
             return ("cmd /c \"echo [边界] 指定用 bash 执行，但目标 Windows 未检测到 Bash。"
                     "请安装 Git Bash/MSYS2/WSL，或改用 cmd/powershell。 & exit /b 1\"")
@@ -234,8 +300,76 @@ def unix_script_cmd(category: str, remote_script: str, arg_str: str = "",
     cron 直接执行脚本文件路径会假设「脚本自己可执行」（+x / shebang）——.sh/.py 没有时
     cron 静默失败，与 Windows 侧 `.bat` 被拼成 `python xxx.bat` 是同一类事故。
     """
-    runner = resolve_runner(shell, False) or UNIX_CATEGORY_RUNNERS.get(category, "bash")
+    runner = resolve_runner(shell, False, category) or UNIX_CATEGORY_RUNNERS.get(category, "bash")
     return f"{runner} {remote_script}{' ' + arg_str if arg_str else ''}"
+
+
+def _quote(value: str) -> str:
+    """参数/路径统一引号包裹（批次 BM ④/N4）。
+
+    路径一律加（`cmd /c "C:\\a\\b.bat"` 合法），参数值也一律加：含空格的会在第一个空格处截断，
+    不含空格的加了也无害（`-n "5"`），而"只在需要时加引号"会留下第二种写法与 shell 注入面
+    （参数值来自前端输入，属于信任边界）。参数**名**不加——`--count`/`%1`/`-n` 是固定字面量。
+    """
+    return f'"{value}"'
+
+
+def _norm_param_key(key: str) -> str:
+    return key.lstrip("-")
+
+
+def normalize_parameters(script: Script, parameters: Dict[str, Any]) -> Dict[str, Any]:
+    """裸键归一化（BQ②）：key.lstrip('-') 后与元数据参数名匹配，匹配到改写为带 `--` 的规范键。
+
+    元数据没有 `--count`？只有 `count`：幂等不改写（脚本自己的 argparse 可能定义裸键）。
+    匹配不到任何元数据参数 → ValueError（路由回 400「未知参数键」）。
+    元数据不是合法 JSON/为空 → 原样返回（不凭空拒绝，与 validate_parameters 同一立场）。
+    """
+    try:
+        defs = json.loads(script.parameters or "[]")
+    except (ValueError, TypeError):
+        defs = []
+    meta = {_norm_param_key(d["name"]): d["name"] for d in defs
+            if isinstance(d, dict) and isinstance(d.get("name"), str)}
+    if not meta:
+        return parameters or {}
+    out: Dict[str, Any] = {}
+    for key, value in (parameters or {}).items():
+        canonical = meta.get(_norm_param_key(key))
+        if canonical is None:
+            raise ValueError(f"未知参数键「{key}」（脚本元数据里没有这个参数）")
+        out[canonical] = value
+    return out
+
+
+def validate_parameters(script: Script, parameters: Dict[str, Any]) -> None:
+    """按脚本元数据（script.parameters，parser 产物）校验入参——非法 → ValueError（路由回 400）。
+
+    批次 BM ⑦/N1：此前 `parameters={"count": "abc"}` 被 200 接受，脚本跑到 argparse 才炸（且错误
+    只出现在输出里，前端表单不报）。只校验**元数据里已知的参数名**：脚本运行期还可能吃元数据没解析
+    出来的参数，不该由这里凭空拒绝。类型按 parser 的命名（string/int/float/bool）。
+    """
+    try:
+        defs = json.loads(script.parameters or "[]")
+    except (ValueError, TypeError):
+        defs = []   # 元数据本身不是合法 JSON：不拦（不是本次入参的问题），别把既有坏数据变成 500
+    types = {_norm_param_key(d["name"]): d.get("type") for d in defs
+             if isinstance(d, dict) and isinstance(d.get("name"), str)}
+
+    for name, value in (parameters or {}).items():
+        if value is None or isinstance(value, bool):
+            continue
+        if not isinstance(value, (int, float, str)):
+            raise ValueError(
+                f"参数「{name}」的值类型不支持（{type(value).__name__}），只接受字符串/数字/开关")
+        want = types.get(_norm_param_key(name))
+        try:
+            if want == "int":
+                int(str(value).strip())        # "5" 合法（HTML input 送的就是字符串）、"5.5"/"abc" 非法
+            elif want == "float":
+                float(str(value).strip())
+        except ValueError:
+            raise ValueError(f"参数「{name}」需要{'整数' if want == 'int' else '数字'}，收到 {value!r}")
 
 
 class ScriptExecutor:
@@ -301,6 +435,10 @@ class ScriptExecutor:
         env = os.environ.copy()
         if env_vars:
             env.update(env_vars)
+        # BQ①：管道下 python 的 stdout 编码不定（老版本/Windows 按 locale），显式钉成 UTF-8，
+        # 与 _local_output_codec("python") 的 utf-8 解码配套；Unix 下注入同样无害
+        if script.category == "python":
+            env["PYTHONIOENCODING"] = "utf-8"
         
         # 确定工作目录
         cwd = working_dir or script.working_dir or str(Path(script.path).parent)
@@ -337,25 +475,21 @@ class ScriptExecutor:
             self._write_log(output_file, collected_output, mode='w')
             
             # 并行读取 stdout 和 stderr
+            out_codec = _local_output_codec(script.category)   # Windows 本机：cmd/PS=ANSI，python/bash=UTF-8
             async def read_stream(stream):
                 nonlocal collected_output
                 while True:
                     line = await stream.readline()
                     if not line:
                         break
-                    text = line.decode('utf-8', errors='replace')
+                    text = line.decode(out_codec, errors='replace')
                     collected_output += text
                     
                     # 写入文件（降级模式下跳过）
                     self._write_log(output_file, text)
                     
-                    # DB只存储尾部1000行（ponytail: 高频写，后续可改为批量/节流写）
-                    lines = collected_output.split('\n')
-                    if len(lines) > 1000:
-                        db_output = '\n'.join(lines[-1000:])
-                    else:
-                        db_output = collected_output
-                    await self._update_db(run_history_id, output=db_output)
+                    # DB 存头部 200 行 + 尾部 800 行（ponytail: 高频写，后续可改为批量/节流写）
+                    await self._update_db(run_history_id, output=_db_output(collected_output))
             
             try:
                 await asyncio.wait_for(
@@ -404,9 +538,8 @@ class ScriptExecutor:
             self.running_processes.pop(run_history_id, None)
             self.local_cancelled.discard(run_history_id)
         
-        # 最终写回（DB存储尾部1000行）
-        lines = collected_output.split('\n')
-        db_output = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
+        # 最终写回（DB 存头部 200 行 + 尾部 800 行，见 _db_output）
+        db_output = _db_output(collected_output)
 
         finished_at = datetime.now()
         duration = None
@@ -479,30 +612,35 @@ class ScriptExecutor:
     
     def _build_command(self, script: Script, parameters: Dict[str, Any],
                        shell: Optional[str] = None) -> str:
-        """构建执行命令（本机）。shell 指定时覆盖 category 默认解释器（SPEC §2.4）。"""
-        runner = resolve_runner(shell, sys.platform == "win32")
+        """构建执行命令（本机）。shell 指定时覆盖 category 默认解释器（SPEC §2.4）。
+
+        N4：路径/含空格的参数值**统一引号包裹**——`cmd /c C:\\脚本 目录\\中文 测试.bat` 会在第一个
+        空格处截断（被当成「命令 + 参数」），中文路径尤其容易撞上；powershell -File 同理。
+        """
+        path = _quote(script.path)
+        runner = resolve_runner(shell, sys.platform == "win32", script.category)
         if runner:
-            cmd = f"{runner} {script.path}"
+            cmd = f"{runner} {path}"
         elif script.category == "python":
-            # 本机：优先 python3（多数 Linux 无 python 别名；此前一律 exit 127），回退 python（Windows）
-            py = shutil.which("python3") or shutil.which("python") or "python"
-            cmd = f"{py} {script.path}"
+            # 本机 Python：resolve_python() 实测过滤 Windows 的 python3 Store 假垫片
+            # （跑起来只打印商店提示、exit 9009 → 本机 .py 全失败）；全假回退 sys.executable
+            cmd = f"{_quote(resolve_python())} {path}"
         elif script.category == "shell":
-            cmd = f"bash {script.path}"
+            cmd = f"bash {path}"
         elif script.category == "bat":
-            cmd = f"cmd /c {script.path}"
+            cmd = f"cmd /c {path}"
         elif script.category == "powershell":
-            cmd = f"powershell -ExecutionPolicy Bypass -File {script.path}"
+            cmd = f"powershell -ExecutionPolicy Bypass -File {path}"
         else:
-            cmd = script.path
+            cmd = path
 
         args = []
         for param_name, param_value in parameters.items():
             if isinstance(param_value, bool):
                 if param_value:
-                    args.append(param_name)
+                    args.append(f"--{param_name.lstrip('-')}" if param_name.lstrip('-') else param_name)
             elif param_value not in (None, ''):
-                args.append(f"{param_name} {param_value}")
+                args.append(f"--{param_name.lstrip('-')} {_quote(str(param_value))}")
 
         if args:
             cmd += " " + " ".join(args)
@@ -587,9 +725,7 @@ class ScriptExecutor:
                 nonlocal collected_output
                 collected_output += text
                 self._write_log(output_file, text)
-                lines = collected_output.split('\n')
-                db_out = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
-                await self._update_db(run_history_id, output=db_out)
+                await self._update_db(run_history_id, output=_db_output(collected_output))
 
             # SFTP 上传主脚本 + 依赖（保留相对目录结构；目录递归创建，兼容 win 相对 home 路径）
             # 按目标平台转码（Windows: .bat/.cmd→ANSI+CRLF、.ps1→UTF-8 BOM；
@@ -741,8 +877,7 @@ class ScriptExecutor:
             # 无论成功失败，清理取消事件
             self.running_remote.pop(run_history_id, None)
 
-        lines = collected_output.split('\n')
-        db_output = '\n'.join(lines[-1000:]) if len(lines) > 1000 else collected_output
+        db_output = _db_output(collected_output)
         finished_at = datetime.now()
         started = await self._get_field(run_history_id, "started_at")
         duration = (finished_at - started).total_seconds() if started else None

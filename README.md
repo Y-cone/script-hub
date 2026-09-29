@@ -30,7 +30,20 @@
 | 实时通信 | WebSocket |
 | 终端模拟 | xterm.js |
 
-## 快速开始
+## 桌面版安装（Windows / Linux）
+
+从 [Releases](https://github.com/Y-cone/script-hub/releases) 下载安装包：
+
+- **Windows**：`ScriptHub_*_x64-setup.exe`（NSIS 安装包）
+- **Linux**：`ScriptHub_*_amd64.deb`（Debian/Ubuntu）或 `.AppImage`（免安装）
+
+安装即用，**无需 Python / Node 环境**（后端内核已打包为 sidecar 随壳分发）。
+
+> **Windows 首次运行**：若 SmartScreen 弹出「已保护你的电脑」，点「更多信息」→「仍要运行」（安装包未做代码签名，属预期）。
+
+数据目录：Windows 在 `%APPDATA%\com.scripthub.app`，Linux 在 `~/.local/share/com.scripthub.app`；Windows 卸载时可选删除用户数据（默认保留），Windows 凭据管理器中的设备凭据不随卸载删除。后端仅监听 `127.0.0.1`，不对局域网开放。
+
+## 快速开始（源码运行）
 
 ### 环境要求
 

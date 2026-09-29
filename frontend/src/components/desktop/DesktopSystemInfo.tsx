@@ -243,7 +243,8 @@ export default function DesktopSystemInfo() {
                       <span className="dot" style={{ background: bad ? 'var(--err)' : 'var(--ok)', marginRight: 8 }} />
                       {rt.name}
                     </span>
-                    <span className={`v${bad ? ' err' : ''}`}>{rt.version || '未安装'}</span>
+                    {/* BO②：version 空/null 不渲染文本（未安装时红点已表意） */}
+                    {rt.version ? <span className={`v${bad ? ' err' : ''}`} title={rt.version}>{rt.version}</span> : null}
                   </div>
                 )
               })}

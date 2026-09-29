@@ -17,18 +17,36 @@ from ..services.ssh_service import fresh_entry
 from ..services.parser import parse_script
 from ..services.script_text import (   # noqa: F401 — probe_script_text/_encoding_label 亦为本模块导出名
     _encoding_candidates, _encoding_label, preserve_eol, probe_script_text)
+from ..services.executor import _win_ansi_codec, encode_script_bytes
 from ..services.depscan import scan_deps
 from pathlib import Path
+from typing import Optional
 from datetime import datetime
 import codecs
 import json
+import logging
 import os
 import shutil
+import sys
 import tempfile
 import io
 import zipfile
 
 router = APIRouter(prefix="/api/scripts", tags=["scripts"])
+
+logger = logging.getLogger(__name__)
+
+# 本机（Windows）落盘就必须转码的后缀：cmd 按 ANSI 读 .bat/.cmd、PowerShell 5.1 无 BOM 时按 ANSI
+# 读 .ps1（细则见 executor.encode_script_bytes）。批次 BM ②：此前转码只接在 SFTP 上传路径上，
+# 本机上传与编辑器保存都是原样字节 → Windows 本机执行 .bat 的中文行直接乱码/炸。
+WIN_LOCAL_ENCODED_SUFFIXES = (".bat", ".cmd", ".ps1")
+
+
+def win_local_encode(data: bytes, name: str) -> tuple[bytes, Optional[str]]:
+    """本机落盘前的平台转码（非 Windows 原样返回，Unix 行为不变）。返回 (payload, 警告|None)。"""
+    if sys.platform != "win32" or Path(name).suffix.lower() not in WIN_LOCAL_ENCODED_SUFFIXES:
+        return data, None
+    return encode_script_bytes(data, True, name)
 
 
 def atomic_write_bytes(path: Path, data: bytes):
@@ -319,6 +337,10 @@ async def import_script(
                     if not dest.is_relative_to(root.resolve()):
                         continue
                     dest.parent.mkdir(parents=True, exist_ok=True)
+                    # 本机 Windows 与上传/保存走同一条落盘转码（批次 BM ②，见 win_local_encode）
+                    data, enc_warning = win_local_encode(data, n)
+                    if enc_warning:
+                        logger.warning("导入 %s: %s", dest, enc_warning)
                     atomic_write_bytes(dest, data)
                     imported.append(str(Path(n)))
     except zipfile.BadZipFile:
@@ -544,11 +566,18 @@ async def upload_script(
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(400, "文件超过 10MB 限制")
 
+    # 本机 Windows：.bat/.cmd 转 ANSI+CRLF、.ps1 加 BOM（批次 BM ②）——cmd/PowerShell 不按 UTF-8
+    # 读脚本文件，原样落盘会让中文行乱码；转码失败（ANSI 编不下来）时原样落盘 + 警告透出，不静默。
+    content, enc_warning = win_local_encode(content, safe_name)
+    if enc_warning:
+        logger.warning("上传 %s: %s", dest, enc_warning)
+
     atomic_write_bytes(dest, content)
 
     # 自动扫描
     result = await scan_scripts(db)
-    return UploadResult(**result, message=f"已上传 {safe_name} 并扫描")
+    return UploadResult(**result, message=f"已上传 {safe_name} 并扫描"
+                         + (f"；{enc_warning}" if enc_warning else ""))
 
 @router.put("/{script_id}/tags")
 async def set_script_tags(script_id: int, data: TagsUpdate, db: AsyncSession = Depends(get_db)):
@@ -674,6 +703,18 @@ async def save_script_content(
     # 的行尾还原（磁盘上是 LF 就不动）。客户端不必记行尾状态，多端共用同一语义。
     data = preserve_eol(raw, data)
 
+    # 本机 Windows 保存（批次 BM ②）：.bat/.cmd → ANSI+CRLF、.ps1 → UTF-8 BOM。
+    # 此前只有 SFTP 上传（远端执行）在转码，本机保存/本机执行走的是原样字节 → cmd 按 ANSI 读
+    # UTF-8 文件，中文行乱码。入参用 **UTF-8 源文本**（而非上面按磁盘编码编出的 data）：磁盘上已经是
+    # ANSI 的文件二次保存时，若把 ANSI 字节喂给这个函数会被当成"非法 UTF-8"而误报警告。
+    win_warning = None
+    if sys.platform == "win32" and p.suffix.lower() in WIN_LOCAL_ENCODED_SUFFIXES:
+        data, win_warning = encode_script_bytes(content.encode("utf-8"), True, p.name)
+        # 落盘字节已不是上面的文本编码 → 以实际写入的编码回报，别让前端显示假的「当前编码」
+        encoding = _win_ansi_codec() if p.suffix.lower() in (".bat", ".cmd") else "utf-8-sig"
+        if win_warning:
+            logger.warning("保存 %s: %s", p, win_warning)
+
     # 字节相同则跳过写盘（保持原优化）；写盘走原子提交，覆盖到一半崩溃不会截断原文件
     if not (p.exists() and raw == data):
         try:
@@ -688,10 +729,15 @@ async def save_script_content(
     # 重扫更新 DB 中的元数据（名称/路径/更新时间等）
     await scan_scripts(db)
     out = {"message": "已保存", "language": script.category, "encoding": encoding}
+    notes = []
     if disk_encoding and disk_encoding != encoding:
-        out["encoding_warning"] = (
+        notes.append(
             f"已按 {_encoding_label(encoding)} 重写，原文件编码为 {_encoding_label(disk_encoding)}（编码已变更）"
         )
+    if win_warning:
+        notes.append(win_warning)
+    if notes:
+        out["encoding_warning"] = " ".join(notes)
     return out
 
 

@@ -28,8 +28,11 @@ def _watch_parent():
 
 
 def main():
-    # 数据目录必须在 app 模块 import 前定案（config/database/executor 均由此推导）
-    data_dir = os.environ.get("SCRIPTHUB_DATA_DIR")
+    # 数据目录必须在 app 模块 import 前定案（config/database/executor 均由此推导）。
+    # SCRIPTHUB_DATA_DIR = 显式覆盖（测试/开发）；SCRIPTHUB_DEFAULT_DATA_DIR = Tauri 壳
+    # 注入的默认（main.rs）——之前只读前者导致迁移分支在桌面形态恒假（门禁 9 FAIL 根因）。
+    data_dir = (os.environ.get("SCRIPTHUB_DATA_DIR")
+                or os.environ.get("SCRIPTHUB_DEFAULT_DATA_DIR"))
     if data_dir:
         # 一次性迁移：旧数据目录 -> 用户数据目录（幂等，见 datamigrate.migrate_if_needed）
         # 旧目录来源：SCRIPTHUB_OLD_DATA_DIR（Tauri 壳注入；源码运行默认推导仓库 data/）。

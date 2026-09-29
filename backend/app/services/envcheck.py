@@ -25,15 +25,24 @@ PLATFORM_RULES = {
 # 非原生平台上的例外：脚本类型 → 运行时可执行名（装上即可跨平台运行）
 ALT_RUNTIME_RULES = {"shell": "bash"}
 
-# 运行时版本探测命令
-_VERSION_CMDS = {
-    "python": ["python", "--version"],
-    "python3": ["python3", "--version"],
-    "node": ["node", "--version"],
-    "bash": ["bash", "--version"],
-    "powershell": ["powershell", "$PSVersionTable.PSVersion.ToString()"],
+# 运行时版本探测命令（按平台裁剪）：
+# Windows 只探 python——python3 命中的多半是 Microsoft Store 垫片，对用户无意义；
+# Unix 只探 python3（python 常缺失）。探测结果有输出校验兜底（probe_versions）。
+if sys.platform.startswith("win"):
+    _VERSION_CMDS = {
+        "python": ["python", "--version"],
+        "node": ["node", "--version"],
+        "bash": ["bash", "--version"],
+        "powershell": ["powershell", "$PSVersionTable.PSVersion.ToString()"],
+    }
+else:
+    _VERSION_CMDS = {
+        "python": ["python3", "--version"],
+        "node": ["node", "--version"],
+        "bash": ["bash", "--version"],
+        "powershell": ["powershell", "$PSVersionTable.PSVersion.ToString()"],
+    }
     # 仅保留脚本执行所需运行时；git/java 与执行路径无关，不探测
-}
 
 
 def current_platform() -> str:
@@ -103,7 +112,19 @@ def system_info() -> dict:
 
 
 def probe_versions() -> list[dict]:
-    """探测常见运行时是否存在及版本"""
+    """探测常见运行时是否存在及版本。
+
+    输出校验：版本行必须形如 `3.12.1` 或含 `Python 3` / `v24.15.0` 这类版本痕迹；
+    不匹配（典型：Windows Store python3 垫片会把整段商店提示当 stdout 吐回来）
+    → 记 installed=False（宁可漏报不误报）。
+    """
+
+    def _plausible_version(ver: str) -> bool:
+        # 容忍各运行时的真实输出形态：3.12.1 / Python 3.x / v20.9.0 / GNU bash, version 5.x
+        return bool(re.match(r"^\d+(\.\d+)*", ver)
+                    or re.match(r"^v\d", ver, re.I)
+                    or re.search(r"(python|node|version)\s+v?\d", ver, re.I))
+
     result = []
     for name, cmd in _VERSION_CMDS.items():
         exe = shutil.which(cmd[0])
@@ -114,10 +135,13 @@ def probe_versions() -> list[dict]:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             out = (r.stdout or r.stderr).strip().splitlines()
             ver = out[0].strip() if out else ""
+            if not _plausible_version(ver):
+                result.append({"name": name, "installed": False, "version": None})
+                continue
             # 提取第一段版本号（如 "Python 3.12.1" → "3.12.1"）
             result.append({"name": name, "installed": True, "version": ver})
         except Exception as e:
-            result.append({"name": name, "installed": True, "version": f"探测失败: {e}"})
+            result.append({"name": name, "installed": False, "version": f"探测失败: {type(e).__name__}"})
     return result
 
 
