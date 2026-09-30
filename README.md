@@ -1,170 +1,150 @@
+<div align="center">
+
 # ScriptHub
 
-本地脚本管理与执行平台，将"记住一堆脚本路径、参数格式、环境依赖"变成"选脚本 → 填参数 → 点运行"。
+**本地脚本管理与执行平台** — 把"记住一堆脚本路径、参数格式、环境依赖"变成"选脚本 → 填参数 → 点运行"。
 
-## 功能特性
+[![Release](https://img.shields.io/github/v/release/Y-cone/script-hub?display_name=tag&logo=github)](https://github.com/Y-cone/script-hub/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-blue)](#-安装)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Backend](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](backend/)
+[![Frontend](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](frontend/)
 
-- **脚本扫描**：自动扫描指定目录，识别 Python/Shell/Batch/PowerShell 脚本
-- **脚本上传**：桌面端拖拽/选择上传脚本，自动入库
-- **自定义标签**：为脚本打标签，按标签筛选（AND 语义）
-- **在线编辑**：内置轻量编辑器，修改脚本内容并保存落盘
-- **参数解析**：自动解析 argparse/getopts 参数，支持手动配置、类型校验与必填检查
-- **脚本执行**：支持工作目录、环境变量、超时配置、Shell 覆盖（同族白名单校验）
-- **环境检测**：执行前校验平台兼容性与运行时版本，不达标可确认后放行
-- **实时输出**：WebSocket 实时推送执行输出，长输出自动截取头尾、完整日志可下载
-- **内置终端**：xterm.js 多标签终端（PowerShell/CMD/bash），支持窗口尺寸跟随
-- **远程设备**：多设备注册与凭据管理（凭据管理器加密存储），远程脚本执行与终端
-- **运行历史**：记录每次执行（含耗时/退出码），支持筛选与日志文件下载
-- **本机信息**：查看主机/OS/IP 与运行时版本（探活按平台裁剪，防假解释器误报）
-- **安全机制**：高危脚本自动扫描标记 + 二次确认，参数注入校验
-- **自动同步**：文件系统变更自动更新数据库（每 30s 轮询）
-- **深度依赖分析**：解析 requirements.txt / package.json / pyproject.toml，检测安装状态
-- **脚本导入导出**：ZIP 打包（脚本文件 + 配置 manifest），跨机器迁移含标签
-- **定时调度**：APScheduler 驱动 cron/间隔 执行，看板管理 + 立即触发；退出后任务保留不丢失
-- **数据迁移**：升级安装自动迁移旧版数据目录，二次启动不重复迁移
-- **JSON 美化复制**：执行输出一键格式化为缩进 JSON 复制
+下载即用的桌面应用（Tauri 2），无需 Python / Node 环境。
 
-## 技术栈
+</div>
 
-| 层级 | 技术 |
+---
+
+## 📌 简介
+
+ScriptHub 解决的问题：散落在各处的运维/开发脚本，路径难记、参数格式各异、依赖环境不明。
+
+| 领域 | 能力 |
 |------|------|
-| 后端 | Python 3.12 + FastAPI + SQLAlchemy + SQLite |
-| 前端 | React 19 + TypeScript + Ant Design 6 + Vite |
-| 桌面壳 | Tauri 2（Rust），PyInstaller 打包后端为 sidecar |
-| 实时通信 | WebSocket |
-| 终端模拟 | xterm.js + ConPTY（pywinpty）|
+| **脚本管理** | 目录扫描（Python/Shell/Batch/PowerShell）、拖拽上传、标签筛选（AND 语义）、在线编辑、ZIP 导入导出（含配置与标签） |
+| **参数化执行** | 自动解析 argparse/getopts 参数 + 手动配置、类型校验、Shell 同族白名单 |
+| **环境与安全** | 执行前平台/运行时校验、高危命令自动扫描（shutdown/format/rm -rf 等）+ 二次确认 |
+| **内置终端** | xterm.js 多标签（PowerShell / CMD / bash），窗口尺寸实时跟随 |
+| **远程设备** | 多设备注册、凭据管理器加密存储、远程执行与远程终端 |
+| **定时调度** | cron / 固定间隔，看板与周视图管理，应用退出后任务保留不丢失 |
+| **运行审计** | 全量执行历史（耗时/退出码）、长输出自动截取头尾、完整日志可下载 |
+| **数据迁移** | 升级安装自动迁移旧数据目录，幂等不重复 |
 
-## 桌面版安装（Windows / Linux）
+## 📦 安装
 
-从 [Releases](https://github.com/Y-cone/script-hub/releases) 下载安装包：
+从 [**Releases**](https://github.com/Y-cone/script-hub/releases/latest) 下载：
 
-- **Windows**：`ScriptHub_*_x64-setup.exe`（NSIS 安装包）
-- **Linux**：`ScriptHub_*_amd64.deb`（Debian/Ubuntu）或 `.AppImage`（免安装）
-
-安装即用，**无需 Python / Node 环境**（后端内核已打包为 sidecar 随壳分发）。
+| 平台 | 文件 |
+|------|------|
+| Windows x64 | `ScriptHub_*_x64-setup.exe`（NSIS 安装向导） |
+| Linux amd64 | `ScriptHub_*_amd64.deb`（Debian/Ubuntu）或 `ScriptHub_*_amd64.AppImage`（免安装） |
 
 > **Windows 首次运行**：若 SmartScreen 弹出「已保护你的电脑」，点「更多信息」→「仍要运行」（安装包未做代码签名，属预期）。
 
-数据目录：Windows 在 `%APPDATA%\com.scripthub.app`（升级安装自动迁移旧 `data\` 目录），Linux 在 `~/.local/share/com.scripthub.app`；Windows 卸载时可选删除用户数据（默认保留，两种删除入口等效），Windows 凭据管理器中的设备凭据随卸载可选清理。后端仅监听 `127.0.0.1`，不对局域网开放。
+数据目录：Windows `%APPDATA%\com.scripthub.app`（升级自动迁移旧 `data\`），Linux `~/.local/share/com.scripthub.app`。后端仅监听 `127.0.0.1`，不对局域网开放。
 
-## 从源码构建（开发）
+## 🚀 快速开始
 
-### 环境要求
+1. 启动 ScriptHub，自动打开主界面
+2. **脚本库**：设置脚本目录（默认 `data/scripts/`）或直接拖拽上传
+3. **运行**：点开脚本 → 填参数 → 执行，实时查看输出
+4. **终端**：底部终端栏拉起 PowerShell / CMD / bash
+5. **调度**：为脚本配置 cron 或间隔任务
 
-- Python 3.10+、Node.js 18+、Rust（tauri CLI）
-- Linux 需 tauri 系统依赖；Windows 需 MSVC 工具链
-
-```bash
-# 后端依赖
-cd backend
-python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-
-# 前端依赖 + 桌面端开发调试
-cd ../frontend
-npm install
-npm run tauri dev
-```
-
-打包：`bash backend/build_sidecar.sh && cd frontend && npm run tauri build`（产物在 `src-tauri/target/release/bundle/`）。
-
-## 项目结构
+## 🏗️ 架构
 
 ```
-script-hub/
-├── backend/
-│   ├── app/
-│   │   ├── main.py          # FastAPI 入口
-│   │   ├── database.py      # 数据库配置
-│   │   ├── models/          # SQLAlchemy 模型
-│   │   ├── schemas/         # Pydantic 数据模式
-│   │   ├── routers/         # API 路由
-│   │   └── services/        # 业务逻辑（scanner/envcheck/depscan/scheduler_service/executor）
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── components/desktop/  # 桌面端 UI 组件
-│   │   ├── stores/          # Zustand 状态管理
-│   │   ├── services/        # API 服务
-│   │   └── styles/          # 样式（proto/desktop）
-│   ├── src-tauri/           # Tauri 壳（Rust）
-│   └── package.json
-├── data/
-│   ├── scripts/             # 脚本存放目录
-│   └── runs/                # 运行日志目录
-└── docs/                    # 构建/测试文档
+┌─────────────────────────────────────────────┐
+│  Tauri 2 壳（Rust）                          │
+│  WebView（React 19 + TS + AntD 6）           │
+│  自绘标题栏 / 托盘 / 端口协商 8001~8020        │
+└──────────────────┬──────────────────────────┘
+                   │ window.__SCRIPTHUB_API__
+                   ▼
+┌─────────────────────────────────────────────┐
+│  sidecar 后端（PyInstaller 打包随壳分发）      │
+│  FastAPI + SQLAlchemy + SQLite (aiosqlite)  │
+│  ├─ executor           执行/输出解码/引号包装  │
+│  ├─ session_manager    ConPTY 终端会话        │
+│  ├─ scheduler_service  APScheduler 定时调度   │
+│  ├─ scanner            扫描/高危命令检测       │
+│  ├─ envcheck           平台与运行时探测        │
+│  └─ win_runtime        解释器实跑甄别          │
+└─────────────────────────────────────────────┘
 ```
 
-## API 文档
+- **进程模型**：Tauri 壳拉起 sidecar 子进程，动态协商首个空闲端口，`window.__SCRIPTHUB_API__` 注入前端；壳退出时随行退出
+- **技术栈**：Python 3.12 · FastAPI · SQLite · React 19 · TypeScript · Ant Design 6 · Vite · xterm.js · Tauri 2 (Rust) · pywinpty (ConPTY) · APScheduler
+- **安全边界**：仅监听回环地址；远程设备凭据存操作系统凭据管理器（Windows Credential Manager / Linux Secret Service）
 
-后端启动后访问 http://127.0.0.1:8001/docs 查看 Swagger 文档（仅本机监听）。
+## 🔌 API 参考
 
-### 主要接口
+后端启动后访问 `http://127.0.0.1:8001/docs` 查看交互式 Swagger 文档。常用接口：
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | /api/scripts | 获取脚本列表（含可用性/标签） |
-| POST | /api/scripts/scan | 扫描脚本目录 |
-| POST | /api/scripts/upload | 上传脚本 |
-| GET | /api/scripts/{id} | 获取脚本详情 |
-| PUT | /api/scripts/{id} | 更新脚本配置 |
-| PUT | /api/scripts/{id}/content | 保存脚本内容 |
-| POST | /api/scripts/{id}/move | 移动脚本目录 |
-| DELETE | /api/scripts/{id} | 删除脚本（保留历史） |
-| GET | /api/scripts/{id}/env-check | 环境检测 |
-| GET | /api/scripts/{id}/deps | 深度依赖分析 |
-| GET | /api/scripts/{id}/export | 导出脚本 ZIP（含配置 manifest） |
-| POST | /api/scripts/import | 导入脚本 ZIP（恢复配置/标签） |
-| GET | /api/tags | 标签列表 |
-| POST | /api/tags | 创建标签 |
-| PUT / DELETE | /api/tags/{id} | 重命名/删除标签 |
-| GET | /api/system/info | 本机信息 |
-| POST | /api/run | 执行脚本（含环境检测拦截） |
-| GET | /api/run/history | 获取运行历史（支持 schedule_id 过滤） |
-| POST | /api/run/{id}/kill | 终止运行 |
-| WS | /api/run/ws/{id} | 实时输出 |
-| GET | /api/schedules | 调度列表 |
-| POST | /api/schedules | 创建调度（cron/间隔二选一） |
-| PUT / DELETE | /api/schedules/{id} | 修改/删除调度 |
-| POST | /api/schedules/{id}/run | 立即触发调度执行 |
+| GET | `/api/scripts` | 脚本列表（含可用性/标签） |
+| POST | `/api/scripts/scan` | 扫描脚本目录 |
+| POST | `/api/scripts/upload` | 上传脚本 |
+| PUT | `/api/scripts/{id}` · `/content` | 更新配置 / 保存内容 |
+| DELETE | `/api/scripts/{id}` | 删除脚本（保留历史） |
+| GET | `/api/scripts/{id}/env-check` · `/deps` | 环境检测 / 依赖分析 |
+| POST | `/api/scripts/import` · GET `/{id}/export` | ZIP 导入导出（含配置/标签） |
+| POST | `/api/run` | 执行脚本（环境检测拦截 + 高危确认） |
+| GET | `/api/run/history` | 运行历史（支持筛选） |
+| GET | `/api/run/{id}/download` | 下载完整日志 |
+| POST | `/api/run/{id}/kill` | 终止运行 |
+| WS | `/api/run/ws/{run_id}` | 实时输出推送 |
+| WS | `/api/terminal/ws` | 终端会话（本机/远程） |
+| GET/POST | `/api/devices` · `/{id}/test` · `/{id}/probe` | 远程设备管理与探活 |
+| GET/POST/PUT/DELETE | `/api/schedules`（`/{id}/run` 立即触发） | 调度管理 |
+| GET | `/api/system/info` | 本机信息与运行时版本 |
+| GET/POST/PUT/DELETE | `/api/tags` · `/api/settings` | 标签与设置管理 |
 
-## 配置
-
-### 脚本目录
-
-默认扫描 `data/scripts/` 目录，可在前端设置中修改。
-
-### 前端 API 地址
-
-桌面端默认直连 `http://127.0.0.1:8001`（壳注入）。开发调试可覆盖：
+## 🛠️ 从源码构建
 
 ```bash
-# frontend/.env
-VITE_API_BASE=http://127.0.0.1:8001
-```
+git clone https://github.com/Y-cone/script-hub.git
+cd script-hub
 
-WebSocket 地址由 `VITE_API_BASE` 自动推导（http→ws/https→wss）。参考 `frontend/.env.example`。
-
-## 开发
-
-```bash
-# 后端开发（热重载）
+# 后端
 cd backend
-source .venv/bin/activate
-python -m uvicorn app.main:app --reload
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 
-# 桌面端开发（Tauri dev 窗口）
-cd frontend
-npm run tauri dev
-
-# 类型检查
-cd frontend && npx tsc -p tsconfig.app.json --noEmit
-
-# 后端测试
-cd backend && python -m pytest tests -q
+# 前端 + 桌面壳（需 Rust 工具链与 Tauri 系统依赖）
+cd ../frontend
+npm install
+npm run tauri dev                # 开发调试
 ```
 
-## License
+打包发布：
 
-MIT
+```bash
+bash backend/build_sidecar.sh    # PyInstaller 打包 sidecar
+cd frontend && npm run tauri build   # 产物在 src-tauri/target/release/bundle/
+```
+
+质量门禁：
+
+```bash
+cd backend && python -m pytest tests -q               # 后端测试
+cd frontend && npx tsc -p tsconfig.app.json --noEmit  # 类型检查
+```
+
+## 🤝 参与贡献
+
+欢迎 Issue 与 PR：
+
+1. Fork → 新建分支（`feat/xxx` 或 `fix/xxx`）
+2. 提交前跑通质量门禁（pytest + tsc）
+3. PR 描述写清动机、改动点与验证方式；行为改动请附复现步骤
+4. 提交信息用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/)（`feat:` / `fix:` / `docs:` / `refactor:`）
+
+Bug 报告请附：平台（Windows/Linux）、版本（Release tag）、复现步骤与预期/实际行为。
+
+## 📄 许可证
+
+[MIT](LICENSE) © [Y-cone](https://github.com/Y-cone)
