@@ -47,49 +47,27 @@
 
 数据目录：Windows 在 `%APPDATA%\com.scripthub.app`（升级安装自动迁移旧 `data\` 目录），Linux 在 `~/.local/share/com.scripthub.app`；Windows 卸载时可选删除用户数据（默认保留，两种删除入口等效），Windows 凭据管理器中的设备凭据随卸载可选清理。后端仅监听 `127.0.0.1`，不对局域网开放。
 
-## 快速开始（源码运行）
+## 从源码构建（开发）
 
 ### 环境要求
 
-- Python 3.10+
-- Node.js 18+
-- npm 或 yarn
-
-### 安装
+- Python 3.10+、Node.js 18+、Rust（tauri CLI）
+- Linux 需 tauri 系统依赖；Windows 需 MSVC 工具链
 
 ```bash
-# 克隆项目
-git clone https://github.com/Y-cone/script-hub.git
-cd script-hub
-
 # 后端依赖
 cd backend
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-# 前端依赖
+# 前端依赖 + 桌面端开发调试
 cd ../frontend
 npm install
+npm run tauri dev
 ```
 
-### 启动
-
-```bash
-# 方式一：使用启动脚本
-./start.sh
-
-# 方式二：手动启动
-# 终端1：启动后端
-cd backend && source .venv/bin/activate
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload
-
-# 终端2：启动前端
-cd frontend
-npm run dev
-```
-
-访问 http://localhost:5173
+打包：`bash backend/build_sidecar.sh && cd frontend && npm run tauri build`（产物在 `src-tauri/target/release/bundle/`）。
 
 ## 项目结构
 
@@ -106,20 +84,21 @@ script-hub/
 │   └── requirements.txt
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/           # 页面组件
-│   │   ├── components/      # 通用组件
+│   │   ├── components/desktop/  # 桌面端 UI 组件
 │   │   ├── stores/          # Zustand 状态管理
-│   │   └── services/        # API 服务
+│   │   ├── services/        # API 服务
+│   │   └── styles/          # 样式（proto/desktop）
+│   ├── src-tauri/           # Tauri 壳（Rust）
 │   └── package.json
 ├── data/
 │   ├── scripts/             # 脚本存放目录
 │   └── runs/                # 运行日志目录
-└── start.sh                 # 启动脚本
+└── docs/                    # 构建/测试文档
 ```
 
 ## API 文档
 
-启动后端后访问 http://localhost:8001/docs 查看 Swagger 文档
+后端启动后访问 http://127.0.0.1:8001/docs 查看 Swagger 文档（仅本机监听）。
 
 ### 主要接口
 
@@ -154,16 +133,11 @@ script-hub/
 
 ### 脚本目录
 
-默认扫描 `data/scripts/` 目录，可在前端修改。
+默认扫描 `data/scripts/` 目录，可在前端设置中修改。
 
-### 端口配置
+### 前端 API 地址
 
-- 后端：8001（修改 `start.sh` 或启动命令）
-- 前端：5173（修改 `vite.config.ts`）
-
-### 前端 API 地址（桌面化准备）
-
-默认前端走 vite proxy 到 `localhost:8001`。如需前端直连后端（如静态托管/桌面壳），设置环境变量：
+桌面端默认直连 `http://127.0.0.1:8001`（壳注入）。开发调试可覆盖：
 
 ```bash
 # frontend/.env
@@ -175,17 +149,20 @@ WebSocket 地址由 `VITE_API_BASE` 自动推导（http→ws/https→wss）。�
 ## 开发
 
 ```bash
-# 后端开发
+# 后端开发（热重载）
 cd backend
 source .venv/bin/activate
 python -m uvicorn app.main:app --reload
 
-# 前端开发
+# 桌面端开发（Tauri dev 窗口）
 cd frontend
-npm run dev
+npm run tauri dev
 
 # 类型检查
-npm run build
+cd frontend && npx tsc -p tsconfig.app.json --noEmit
+
+# 后端测试
+cd backend && python -m pytest tests -q
 ```
 
 ## License
