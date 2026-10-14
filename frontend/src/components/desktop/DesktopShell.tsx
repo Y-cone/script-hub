@@ -352,8 +352,8 @@ export default function DesktopShell() {
         </div>
       </div>
 
-      {/* 主区 */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* 主区 —— key=pathname：SPEC §3.2.2 #1 页面跳转淡入（sh-page，desktop.css），只入不出 */}
+      <div key={location.pathname} className="sh-page" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {apiReady ? <Outlet /> : (
           /* 批次 AE：只挡内容区，顶栏/终端栏照常渲染（首屏不卡） */
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--muted)', fontSize: 13 }}>

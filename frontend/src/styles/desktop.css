@@ -18,6 +18,10 @@
   --sh-warn: #c9a54e;
   /* V5-G（v2.0 拍板）：内置 JetBrains Mono woff2（latin 子集 42KB）随产物打包，不依赖目标机 */
   --sh-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+  /* SPEC §3.2.1（v2.38）动效三档 token；曲线写在各规则（进 ease-out / 退 ease-in），不另设 token */
+  --dur-fast: 100ms;
+  --dur-base: 120ms;
+  --dur-list: 160ms;
 }
 
 /* 内置等宽字体（public/fonts/，PRD 4.K 字体行：路径/命令/输出统一等宽） */
@@ -118,7 +122,8 @@ html:has(.desktop-mode) {
 .desktop-mode ::-webkit-scrollbar-track { background: transparent; }
 
 /* ===== V5-G（SPEC §3）：状态样式矩阵 + 动效参数 ===== */
-/* §3.2 动效只有四项：颜色/背景 120ms、底栏高度 160ms、面板出现 120ms+4px、其余一律无动画 */
+/* §3.2（v2.38）：颜色/背景 --dur-base、底栏高度 160ms（§2.5 例外）、面板出现 --dur-base + 4px、
+   其余按 §3.2.2 六类矩阵（页面淡入 / 列表行入场 / Tab·树淡入），见文末 sh-page-in 段 */
 .desktop-mode .ant-btn,
 .desktop-mode .ant-table-tbody > tr,
 .desktop-mode .ant-tabs-tab,
@@ -233,11 +238,25 @@ html.desktop-root .ant-select-disabled .ant-select-content,
   to { opacity: 1; transform: translateY(0); }
 }
 .desktop-mode .sh-palette { animation: sh-panel-in 120ms ease-out; }
-/* prefers-reduced-motion：全部动画时长归零 */
+/* SPEC §3.2.2（v2.38）六类矩阵的入场动画：只动 opacity/transform，退场不造（antd motion 收口 / 即时移除） */
+@keyframes sh-page-in { from { opacity: 0; } }
+@keyframes sh-row-in { from { opacity: 0; transform: translateY(2px); } }
+/* #1 页面跳转：DesktopShell 主区容器 key=pathname 重挂载触发，只淡入不做位移 */
+.desktop-mode .sh-page { animation: sh-page-in var(--dur-base) ease-out; }
+/* #4 Tab 内容 / #6 树子级容器：条件渲染重挂载触发（--dur-fast） */
+.desktop-mode .sh-tabpane,
+.desktop-mode .sh-tree-in { animation: sh-page-in var(--dur-fast) ease-out; }
+/* #3 列表行数增加：useRowIn 挂一次性 class（整容器淡入重放，>20 行跳过；--dur-list） */
+.desktop-mode .sh-rows-in { animation: sh-row-in var(--dur-list) ease-out; }
+/* prefers-reduced-motion：全部动画时长归零。
+   html.desktop-root 行补住 portal 到 body 的 antd 弹层（Modal/message 等，桌面壳在 <html> 上打该类） */
 @media (prefers-reduced-motion: reduce) {
   .desktop-mode *,
   .desktop-mode *::before,
-  .desktop-mode *::after {
+  .desktop-mode *::after,
+  html.desktop-root *,
+  html.desktop-root *::before,
+  html.desktop-root *::after {
     animation-duration: 0s !important;
     animation-delay: 0s !important;
     transition-duration: 0s !important;

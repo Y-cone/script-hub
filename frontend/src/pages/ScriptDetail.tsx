@@ -662,7 +662,7 @@ export default function ScriptDetail() {
     ? buildCommand(currentScript.name, currentScript.category, params)
     : ''
 
-  if (!currentScript) return <Spin size="large" />
+  if (!currentScript) return <Spin size="large" delay={150} />
 
   // V5-G：五 tab 内容拆分（desktop=Tabs / web=平铺）。生成 JSX 的辅助函数复用原 Card 结构。
   // v2.16 §0.5：基本信息板块的四个字段 JSX 抽成变量——桌面折叠段（.kvmini）与 Web 平铺 Card（.kv 网格）共用（改容器不改字段）
@@ -829,7 +829,7 @@ export default function ScriptDetail() {
           </>
         )
       ) : (
-        <Spin />
+        <Spin delay={150} />
       )}
       {/* v2.8（用户）：元信息行右下承载 编辑/保存 —— 不再单开标题行 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1055,7 +1055,8 @@ export default function ScriptDetail() {
               AW 批为挂「保存配置/终止」加的 marginLeft:auto 右侧容器随之清掉（末尾那个包装只剩它一个）。
               至此 tab 条**只剩 5 个 tab 芯片**（TABS），无右侧动作容器。 */}
         </div>
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        {/* SPEC §3.2.2 #4：key=activeTab 重挂载内容容器 → sh-tabpane 淡入（--dur-fast） */}
+        <div key={activeTab} className="sh-tabpane" style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
           {activeTab === 'output' ? tabOutput : activeTab === 'preview' ? tabPreview
             : activeTab === 'deps' ? tabDeps : activeTab === 'schedule' ? tabSchedule : tabConfig}
         </div>

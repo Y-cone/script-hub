@@ -15,6 +15,7 @@ import { saveBinaryFile, showContextMenu, openBinaryFile } from '../../services/
 import { useScriptStore } from '../../stores/scriptStore'
 import { useDeviceContext } from '../../stores/deviceContext'
 import { durationText } from '../../utils/format'
+import useRowIn from '../../utils/useRowIn'
 import type { ScriptItem } from '../../services/api'
 import TagManagerPalette from './TagManagerPalette'
 import Sel from './Sel'
@@ -106,6 +107,7 @@ export default function DesktopScriptLibrary() {
   const [running, setRunning] = useState(false)
   const [loading, setLoading] = useState(false)
   const [reload, setReload] = useState(0)
+  const rowIn = useRowIn(items.length)   // SPEC §3.2.2 #3：行数增加 → 容器淡入重放
 
   // 列表（服务端筛选）
   // V5-G：上传 / 导入 / 扫描（原型 §1 filterbar 以 .tag 芯片承载操作；桌面直调系统对话框，无 antd 视觉）
@@ -290,7 +292,7 @@ export default function DesktopScriptLibrary() {
             <span className="mono">{n.count}</span>
           </div>
           {open && n.children.length > 0 && (
-            <div style={{ borderLeft: '1px solid var(--border)', marginLeft: 15 }}>
+            <div className="sh-tree-in" style={{ borderLeft: '1px solid var(--border)', marginLeft: 15 }}>
               {renderTree(n.children)}
             </div>
           )}
@@ -622,7 +624,7 @@ export default function DesktopScriptLibrary() {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = '' }} />
           <span className="mono" style={{ marginLeft: 'auto' }}>{total} 个脚本</span>
         </div>
-        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+        <div className={rowIn} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
           <table>
             <thead>
               <tr>

@@ -10,6 +10,7 @@ import type { RunHistoryItem } from '../../services/api'
 import { durationText } from '../../utils/format'
 import { useDeviceContext } from '../../stores/deviceContext'
 import Sel from './Sel'
+import useRowIn from '../../utils/useRowIn'
 
 const SYM: Record<string, { s: string; c: string }> = {
   success: { s: '', c: 'ok' },
@@ -96,6 +97,7 @@ export default function DesktopRunHistory() {
 
   const today = items.filter((i) => new Date(i.started_at).toDateString() === new Date().toDateString()).length
   const rows = items   // v2.7 起筛选全部由后端作用于行数据，此处不再重复过滤（会与分页打架）
+  const rowIn = useRowIn(rows.length)   // SPEC §3.2.2 #3：行数增加 → 容器淡入重放
   const pages = Math.max(1, Math.ceil(total / pageSize))
   // 抽屉读的是同一个数据源（items 的当前行，不是点击时的快照）：轮询拿到新状态后抽屉跟着变，
   // 否则运行中那条点开后详情永远停在「运行中/无输出」。行不在当前页时回落快照。
@@ -136,7 +138,7 @@ export default function DesktopRunHistory() {
                 : <span className="btn pri" style={{ cursor: 'pointer' }} onClick={() => navigate('/')}>去脚本库</span>}
             </div>
           ) : (
-          <table>
+          <table className={rowIn}>
             <thead>
               <tr>
                 <th style={{ width: 30 }} />

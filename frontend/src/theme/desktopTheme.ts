@@ -41,6 +41,11 @@ export function useDesktopTheme() {
           controlHeight: 28,
           // v2.8：用户反馈整体偏小 → 13 → 14（proto.css 侧同批 +1px）
           fontSize: 14,
+          // SPEC §3.2.2 #2（v2.38）：Modal/Drawer/Popconfirm 进出场统一 100ms（--dur-fast 档；
+          // antd 自身曲线处理退场，不另造）。三档全钉 100ms = 浮层动效同一节奏。
+          motionDurationFast: '100ms',
+          motionDurationMid: '100ms',
+          motionDurationSlow: '100ms',
         },
         components: {
           Table: { cellPaddingBlockSM: 6, fontSize: 14 },   // 行高≈32

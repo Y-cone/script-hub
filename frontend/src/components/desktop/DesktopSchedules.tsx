@@ -14,6 +14,7 @@ import {
 } from '../../services/api'
 import type { ScheduleItem } from '../../services/api'
 import { durationText } from '../../utils/format'
+import useRowIn from '../../utils/useRowIn'
 
 function triggerText(s: ScheduleItem) {
   if (s.cron_expr) return s.cron_expr
@@ -80,6 +81,7 @@ export default function DesktopSchedules() {
 
   const on = items.filter((s) => s.enabled).length
   const off = items.length - on
+  const rowIn = useRowIn(rows.length)   // SPEC §3.2.2 #3：行数增加 → 容器淡入重放
   // 与周历的周统计卡同源（原独立估算会让两处数字打架）
   const { triggers: weekRuns, failed: weekFailed } = weekStats(items)
 
@@ -127,7 +129,7 @@ export default function DesktopSchedules() {
               options={[{ value: '', label: '状态：全部' }, { value: 'on', label: '已启用' }, { value: 'off', label: '已停用' }]} />
             <span className="mono" style={{ marginLeft: 'auto' }}>共 {rows.length} 条</span>
           </div>
-          <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          <div className={rowIn} style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
             <table>
               <thead>
                 <tr>

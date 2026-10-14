@@ -249,7 +249,7 @@ export default function ScriptWorkspace() {
     return (
       <div className="dsk-detail" style={{ flex: 1, minHeight: 0, display: 'grid', gridTemplateColumns: '1fr 300px', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Spin style={{ margin: 40 }} />
+          <Spin style={{ margin: 40 }} delay={150} />
         </div>
         <ScriptDetailEmbedded />
       </div>
@@ -292,6 +292,6 @@ function ScriptDetailEmbedded() {
   useEffect(() => {
     import('../../pages/ScriptDetail').then((m) => setComp(() => m.default))
   }, [])
-  if (!Comp) return <Spin style={{ margin: 40 }} />
+  if (!Comp) return <Spin style={{ margin: 40 }} delay={150} />
   return <Comp />
 }
