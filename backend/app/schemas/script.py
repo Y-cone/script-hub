@@ -47,6 +47,17 @@ class MoveRequest(BaseModel):
     directory: str
 
 
+class DirCreateRequest(BaseModel):
+    """新建子目录（相对脚本根目录，可多级 a/b/c）"""
+    path: str
+
+
+class DirRenameRequest(BaseModel):
+    """目录重命名：old/new 均为相对脚本根的完整路径（前端拼好）"""
+    old: str
+    new: str
+
+
 class ScriptListOut(BaseModel):
     items: list[ScriptOut]
     total: int

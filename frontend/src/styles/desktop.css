@@ -402,3 +402,82 @@ html.desktop-root .ant-select-item.ant-select-item-option.ant-select-item-option
   box-shadow: inset 2px 0 0 var(--sh-pri);
 }
 html.desktop-root .ant-select-item-empty { background: var(--sh-float); color: var(--sh-muted); }
+
+/* ── 脚本库目录区（v2.37 B'：标题行常驻图标按钮 + 置顶搜索框）── */
+/* 「目录」标题行右端两枚 20px 圆角图标按钮（＋新建 / ⊟折叠），常驻可见不做 hover 显隐 */
+.desktop-mode .dirtree-btn {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--sh-muted);
+  font-size: 12.5px;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+}
+.desktop-mode .dirtree-btn:hover { color: var(--sh-text); background: var(--sh-float); }
+
+/* 文件夹过滤搜索框（置顶，样式对齐原型：var(--bg) 底 / var(--border) 边 / 6px 圆角） */
+.desktop-mode .dirtree-search {
+  margin: 0 12px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--sh-bg);
+  border: 1px solid var(--sh-border);
+  border-radius: 6px;
+  padding: 3px 8px;
+}
+.desktop-mode .dirtree-search:focus-within { border-color: var(--sh-pri); }
+.desktop-mode .dirtree-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--sh-text);
+  font-size: 12.5px;
+}
+.desktop-mode .dirtree-search input::placeholder { color: var(--sh-muted); }
+.desktop-mode .dirtree-search-clr { color: var(--sh-muted); cursor: pointer; font-size: 12px; }
+
+/* ── v2.37 ⑤ 目录右键上下文菜单（自绘浮层，与标签管理/设置同族；全 --sh-* 令牌）── */
+.desktop-mode .dirtree-ctx {
+  position: fixed;
+  z-index: 1200;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--sh-panel);
+  border: 1px solid var(--sh-border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  animation: sh-panel-in 120ms ease-out;
+}
+.desktop-mode .dirtree-ctx-item {
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--sh-text);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+.desktop-mode .dirtree-ctx-item:hover { background: var(--sh-float); }
+.desktop-mode .dirtree-ctx-item.disabled { color: var(--sh-muted); cursor: not-allowed; }
+.desktop-mode .dirtree-ctx-item.disabled:hover { background: none; }
+
+/* ── 摘要卡 .kv 值侧超长省略（目录长路径不再撑卡/换行）── */
+/* 标签列定宽（flex:none），值列吃剩余宽度并可收缩（min-width:0 是 flex 子项省略的前提）；
+   hover 全文由渲染层原生 title 提供（DesktopScriptLibrary 目录行）。 */
+.desktop-mode .kv span:first-child { flex: none; }
+.desktop-mode .kv span:last-child {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

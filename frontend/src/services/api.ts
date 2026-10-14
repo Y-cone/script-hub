@@ -89,6 +89,16 @@ export const deleteScript = (id: number) =>
 export const getScriptDirs = () =>
   api.get<{ directories: string[] }>('/api/scripts/dirs')
 
+export const createScriptDir = (path: string) =>
+  api.post<{ message: string; path: string }>('/api/scripts/dirs', { path })
+
+// v2.37 ⑤：目录重命名（new = 新完整相对路径，前端拼好）与仅空目录删除
+export const renameScriptDir = (oldPath: string, newPath: string) =>
+  api.put<{ message: string }>('/api/scripts/dirs', { old: oldPath, new: newPath })
+
+export const deleteScriptDir = (path: string) =>
+  api.delete<{ message: string }>('/api/scripts/dirs', { params: { path } })
+
 export const scanScripts = () => api.post<ScanResult>('/api/scripts/scan')
 
 export const uploadScript = (file: File, subdir = '') => {

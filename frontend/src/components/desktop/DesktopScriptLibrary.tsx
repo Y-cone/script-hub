@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { message, Modal } from 'antd'
-import { getScripts, getScriptDirs, getTags, getSchedules, getRunHistory, runScript, exportScript, deleteScript, uploadScript, importScript } from '../../services/api'
+import { getScripts, getScriptDirs, createScriptDir, renameScriptDir, deleteScriptDir, getTags, getSchedules, getRunHistory, runScript, exportScript, deleteScript, uploadScript, importScript } from '../../services/api'
 import { saveBinaryFile, showContextMenu, openBinaryFile } from '../../services/desktop'
 import { useScriptStore } from '../../stores/scriptStore'
 import { useDeviceContext } from '../../stores/deviceContext'
@@ -18,6 +18,9 @@ import { durationText } from '../../utils/format'
 import type { ScriptItem } from '../../services/api'
 import TagManagerPalette from './TagManagerPalette'
 import Sel from './Sel'
+
+/** v2.37：目录树节点（children 递归嵌套，渲染时按层包参考线容器） */
+interface DirNode { name: string; path: string; count: number; children: DirNode[] }
 
 const CATEGORY_LABEL: Record<string, string> = { python: 'python', shell: 'shell', bat: 'bat', powershell: 'powershell' }
 
@@ -84,6 +87,19 @@ export default function DesktopScriptLibrary() {
   const [tagFilter, setTagFilter] = useState<number[]>([])
   const [tagPanelOpen, setTagPanelOpen] = useState(false)
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  // v2.37 ②：目录树「新建文件夹」——内联输入出现在「目录」标题行正下方，建在当前选中目录（dir）下
+  const [newDirOpen, setNewDirOpen] = useState(false)
+  const [newDirName, setNewDirName] = useState('')
+  // v2.37 ⑤：新建目标目录可指定（＋按钮 = 当前选中 dir；右键菜单 = 右键的那个目录）
+  const [newDirTarget, setNewDirTarget] = useState('')
+  // v2.37 ⑤：右键上下文菜单（自绘浮层；path=null = 树空白区，仅【新建文件夹】）
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; path: string | null } | null>(null)
+  const ctxRef = useRef<HTMLDivElement | null>(null)
+  // v2.37 ⑤：目录重命名——行内原地编辑（输入框替换目录名）
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [renameVal, setRenameVal] = useState('')
+  // v2.37 ①：文件夹过滤搜索框（纯前端内存过滤，命中行祖先链自动展开）
+  const [dirSearch, setDirSearch] = useState('')
   const [selected, setSelected] = useState<ScriptItem | null>(null)
   const [sched, setSched] = useState({ total: 0, enabled: 0 })
   const [output, setOutput] = useState('')
@@ -199,28 +215,165 @@ export default function DesktopScriptLibrary() {
     return () => clearInterval(timer)
   }, [hasRunning, loadOutput])
 
-  // 目录树：按 '/' 层级切成可折叠列表
+  // 目录树：按 '/' 层级切成嵌套节点（v2.37 ③b：渲染为 border-left 参考线嵌套容器）
+  const dirQ = dirSearch.trim().toLowerCase()
+  // dirQ 非空时做内存过滤：目录名命中保留，命中行的祖先链自动跟随保留，且忽略折叠态全部展开
   const tree = useMemo(() => {
-    const rows: { name: string; path: string; depth: number; hasChild: boolean; count: number }[] = []
-    const push = (prefix: string, depth: number) => {
-      const children = new Set<string>()
+    const build = (prefix: string, depth: number): DirNode[] => {
+      const segs = new Set<string>()
       for (const d of dirs) {
         const seg = d.split('/').filter(Boolean)
-        if (seg.length > depth && seg.slice(0, depth).join('/') === prefix) children.add(seg[depth])
+        if (seg.length > depth && seg.slice(0, depth).join('/') === prefix) segs.add(seg[depth])
       }
-      for (const c of [...children].sort()) {
-        const path = prefix ? `${prefix}/${c}` : c
-        const hasChild = dirs.some((d) => d.startsWith(path + '/'))
-        const count = catalog.filter((s) => (s.relative_path || '').replace(/^\/+/, '').startsWith(path + '/') || (s.relative_path || '').replace(/^\/+/, '').startsWith(path)).length
-        rows.push({ name: c, path, depth, hasChild, count })
-        if (hasChild && expanded[path] !== false) push(path, depth + 1)
-      }
+      return [...segs].sort().map((name) => {
+        const path = prefix ? `${prefix}/${name}` : name
+        const count = catalog.filter((s) => (s.relative_path || '').replace(/^\/+/, '').startsWith(path)).length
+        return { name, path, count, children: build(path, depth + 1) }
+      })
     }
-    push('', 0)
-    return rows
-  }, [dirs, expanded, catalog])
+    const walk = (nodes: DirNode[]): DirNode[] =>
+      dirQ
+        ? nodes
+            .map((n) => ({ ...n, children: walk(n.children) }))
+            .filter((n) => n.name.toLowerCase().includes(dirQ) || n.children.length > 0)
+        : nodes
+    return walk(build('', 0))
+  }, [dirs, catalog, dirQ])
+
+  // 递归渲染树：有子级的层包一层参考线容器（折叠时整层随内容隐藏，满足 ③b）
+  const renderTree = (nodes: DirNode[]): React.ReactNode =>
+    nodes.map((n) => {
+      const open = dirQ !== '' || n.children.length === 0 || expanded[n.path] !== false
+      const on = dir === n.path
+      return (
+        <div key={n.path}>
+          <div
+            onClick={() => { setDir(n.path); setPage(1) }}
+            onContextMenu={(e) => {
+              e.preventDefault(); e.stopPropagation()
+              setCtxMenu({ x: e.clientX, y: e.clientY, path: n.path })
+            }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px', cursor: 'pointer',
+              color: on ? 'var(--pri)' : n.path.includes('/') ? 'var(--text)' : 'var(--muted)',
+              background: on ? 'var(--float)' : 'transparent',
+            }}
+          >
+            {n.children.length > 0 ? (
+              <span
+                onClick={(e) => { e.stopPropagation(); setExpanded((p) => ({ ...p, [n.path]: p[n.path] === false })) }}
+                style={{ width: 14, flex: 'none', color: open && dirQ === '' ? 'var(--pri)' : 'var(--muted)' }}
+              >
+                {open ? '▾' : '▸'}
+              </span>
+            ) : (
+              <span style={{ width: 14, flex: 'none' }} />
+            )}
+            <span style={{ color: 'var(--pri)', flex: 'none' }}>▣</span>
+            {renaming === n.path ? (
+              <input
+                className="sel"
+                data-testid="dir-rename-input"
+                autoFocus
+                style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: '1px 5px', borderColor: 'var(--pri)' }}
+                value={renameVal}
+                onChange={(e) => setRenameVal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitRename()
+                  else if (e.key === 'Escape') { setRenaming(null); setRenameVal('') }
+                }}
+                onBlur={() => { setRenaming(null); setRenameVal('') }}
+              />
+            ) : (
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.name}</span>
+            )}
+            <span className="mono">{n.count}</span>
+          </div>
+          {open && n.children.length > 0 && (
+            <div style={{ borderLeft: '1px solid var(--border)', marginLeft: 15 }}>
+              {renderTree(n.children)}
+            </div>
+          )}
+        </div>
+      )
+    })
 
   const tagCount = (name: string) => catalog.filter((s) => (s.tags || []).includes(name)).length
+
+  // v2.37 ②：新目录建在指定目标目录下（＋按钮 = 当前选中；右键 = 右键的那个目录；「全部」=根下）
+  const submitNewDir = async () => {
+    const name = newDirName.trim()
+    setNewDirOpen(false)
+    setNewDirName('')
+    if (!name) return
+    const p = (newDirTarget ? `${newDirTarget}/` : '') + name.replace(/^\/+|\/+$/g, '')
+    try {
+      await createScriptDir(p)
+      message.success(`已创建目录 ${p}`)
+      const { data } = await getScriptDirs()
+      setDirs(data.directories || [])
+      const segs = p.replace(/^\/+|\/+$/g, '').split('/')
+      setExpanded((e) => ({ ...e, ...Object.fromEntries(segs.slice(0, -1).map((_, i) => [segs.slice(0, i + 1).join('/'), true])) }))
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '创建失败')
+    }
+  }
+
+  // ── v2.37 ⑤ 右键上下文菜单 ──
+  /** 目录下的脚本数（catalog 全量现算，relative_path 前缀匹配）——删除项禁用判据 */
+  const dirCount = (p: string) => catalog.filter((s) => (s.relative_path || '').replace(/^\/+/, '').startsWith(`${p}/`)).length
+
+  // 菜单开着：点击菜单外 / Esc / 滚动 / 窗口缩放 → 关闭
+  useEffect(() => {
+    if (!ctxMenu) return
+    const close = (e: MouseEvent) => { if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setCtxMenu(null) }
+    const onGone = () => setCtxMenu(null)
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onGone, true)
+    window.addEventListener('resize', onGone)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onGone, true)
+      window.removeEventListener('resize', onGone)
+    }
+  }, [ctxMenu])
+
+  const submitRename = async () => {
+    const oldP = renaming
+    setRenaming(null)
+    const name = renameVal.trim()
+    setRenameVal('')
+    if (!oldP || !name) return
+    const segs = oldP.split('/')
+    if (name === segs[segs.length - 1]) return
+    const newP = [...segs.slice(0, -1), name].join('/')
+    try {
+      await renameScriptDir(oldP, newP)
+      message.success(`已重命名为 ${newP}`)
+      loadCatalog(); setReload((t) => t + 1)   // 目录变了：dirs + catalog + 脚本列表都要新
+      // 展开态与选中目录若在被改名路径下，前缀同步改写
+      setExpanded((e) => Object.fromEntries(Object.entries(e).map(([k, v]) =>
+        [k === oldP || k.startsWith(`${oldP}/`) ? newP + k.slice(oldP.length) : k, v])))
+      setDir((d) => (d === oldP || d.startsWith(`${oldP}/`)) ? newP + d.slice(oldP.length) : d)
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '重命名失败')
+    }
+  }
+
+  const onDeleteDir = async (p: string) => {
+    try {
+      await deleteScriptDir(p)
+      message.success('目录已删除')
+      loadCatalog(); setReload((t) => t + 1)
+      // 当前选中在被删路径下 → 回退「全部」
+      if (dir === p || dir.startsWith(`${p}/`)) { setDir(''); setPage(1) }
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '删除失败')
+    }
+  }
 
   /** 标签名 → 颜色（芯片色点；未知标签回落 --sh-dim） */
   const tagColor = (name: string) => tags.find((t) => t.name === name)?.color || 'var(--sh-dim)'
@@ -337,39 +490,80 @@ export default function DesktopScriptLibrary() {
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr 280px', flex: 1, minHeight: 0 }}>
-      {/* ── 左：目录树 + 标签 ── */}
-      <div style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)', padding: '8px 0', fontSize: 13.5, overflow: 'auto' }}>
+      {/* ── 左：目录树 + 标签（v2.37 B'：搜索框置顶 + 标题行常驻图标 + 参考线嵌套树）── */}
+      {/* ⑤ 树空白区右键 →【新建文件夹】（行上的 onContextMenu 已 stopPropagation，走到这里的都是空白） */}
+      <div
+        onContextMenu={(e) => { e.preventDefault(); setNewDirTarget(dir); setCtxMenu({ x: e.clientX, y: e.clientY, path: null }) }}
+        style={{ background: 'var(--panel)', borderRight: '1px solid var(--border)', padding: '8px 0', fontSize: 13.5, overflow: 'auto' }}
+      >
+        {/* ① 文件夹过滤搜索框置顶 */}
+        <div className="dirtree-search" data-testid="dir-search">
+          <input
+            data-testid="dir-search-input"
+            placeholder="搜索文件夹…"
+            value={dirSearch}
+            onChange={(e) => setDirSearch(e.target.value)}
+          />
+          {dirSearch && (
+            <span className="dirtree-search-clr" data-testid="dir-search-clear" onClick={() => setDirSearch('')}>✕</span>
+          )}
+        </div>
+        {/* ① 「目录」标题行：右端两枚常驻图标按钮（不做 hover 显隐） */}
+        <div className="dirtree-head" style={{ display: 'flex', alignItems: 'center', padding: '4px 12px' }}>
+          <span style={{ flex: 1, fontSize: 11, color: 'var(--muted)', letterSpacing: '.04em', fontWeight: 600 }}>目录</span>
+          <span className="dirtree-btn" data-testid="dir-new" title="新建文件夹"
+            onClick={() => { setNewDirTarget(dir); setNewDirOpen(true) }}>＋</span>
+          {/* ③ 全部折叠：把所有有子级的路径标为收起（树默认展开，防的就是这个 state） */}
+          <span className="dirtree-btn" data-testid="dir-collapse-all" title="全部折叠"
+            onClick={() => {
+              const e: Record<string, boolean> = {}
+              for (const d of dirs) {
+                const seg = d.split('/').filter(Boolean)
+                for (let i = 1; i < seg.length; i++) e[seg.slice(0, i).join('/')] = false
+              }
+              setExpanded(e)
+            }}>⊟</span>
+        </div>
+        {/* ② 内联输入：标题行正下方，border 转主色；Enter 确认 / Esc·✕·失焦取消 */}
+        {newDirOpen && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, margin: '2px 12px 8px' }}>
+            <input
+              className="sel"
+              data-testid="dir-new-input"
+              autoFocus
+              style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: '2px 6px', borderColor: 'var(--pri)' }}
+              placeholder={newDirTarget ? `${newDirTarget}/新文件夹名` : '新文件夹名，Enter 确认'}
+              value={newDirName}
+              onChange={(e) => setNewDirName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitNewDir()
+                else if (e.key === 'Escape') { setNewDirOpen(false); setNewDirName('') }
+              }}
+              onBlur={() => { setNewDirOpen(false); setNewDirName('') }}
+            />
+            <span className="dirtree-btn" title="取消"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setNewDirOpen(false); setNewDirName('') }}>✕</span>
+          </div>
+        )}
+        {/* ③b 根行「全部」：▤ 图标，无折叠箭头 */}
         <div
           onClick={() => { setDir(''); setPage(1) }}
           style={{
-            padding: '5px 14px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 5, padding: '5px 14px', cursor: 'pointer',
             color: dir === '' ? 'var(--pri)' : 'var(--muted)',
             background: dir === '' ? 'var(--float)' : 'transparent',
           }}
         >
-          全部 <span className="mono" style={{ float: 'right' }}>{catalogTotal}</span>
+          <span style={{ width: 14, flex: 'none' }} />
+          <span style={{ color: 'var(--pri)', flex: 'none' }}>▤</span>
+          <span style={{ flex: 1 }}>全部</span>
+          <span className="mono">{catalogTotal}</span>
         </div>
-        {tree.map((n) => (
-          <div
-            key={n.path}
-            onClick={() => { setDir(n.path); setPage(1) }}
-            style={{
-              padding: `5px 14px 5px ${14 + n.depth * 14}px`, cursor: 'pointer',
-              color: dir === n.path ? 'var(--pri)' : n.depth === 0 ? 'var(--muted)' : 'var(--text)',
-              background: dir === n.path ? 'var(--float)' : 'transparent',
-            }}
-          >
-            {n.hasChild ? (
-              <span
-                onClick={(e) => { e.stopPropagation(); setExpanded((p) => ({ ...p, [n.path]: p[n.path] === false })) }}
-                style={{ color: 'var(--muted)', marginRight: 4 }}
-              >
-                {expanded[n.path] === false ? '▸' : '▾'}
-              </span>
-            ) : null}
-            {n.name} <span className="mono" style={{ float: 'right' }}>{n.count}</span>
-          </div>
-        ))}
+        {renderTree(tree)}
+        {dirQ !== '' && tree.length === 0 && (
+          <div style={{ padding: '10px 14px', fontSize: 12, color: 'var(--muted)' }}>无匹配文件夹</div>
+        )}
         <div style={{ padding: '14px 14px 4px', fontSize: 12, color: 'var(--muted)', letterSpacing: '.04em' }}>标签</div>
         <div style={{ padding: '4px 14px', display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {tags.map((t) => (
@@ -529,7 +723,7 @@ export default function DesktopScriptLibrary() {
               <span className="tag">{CATEGORY_LABEL[selMeta.category] || selMeta.category}</span>
               {(selMeta.tags || []).map((t) => <span key={t} className="tag">{t}</span>)}
             </div>
-            <div className="kv"><span>目录</span><span>{selMeta.relative_path || '/'}</span></div>
+            <div className="kv"><span>目录</span><span title={selMeta.relative_path || '/'}>{selMeta.relative_path || '/'}</span></div>
             <div className="kv">
               <span>最近运行</span>
               <span className={selSt.cls}>
@@ -564,6 +758,43 @@ export default function DesktopScriptLibrary() {
           </>
         )}
       </div>
+
+      {/* v2.37 ⑤：目录右键上下文菜单（自绘浮层，非 antd；定位鼠标处+靠边翻转） */}
+      {ctxMenu && (() => {
+        const MENU_W = 168
+        const menuH = ctxMenu.path == null ? 40 : 104
+        const mx = Math.max(4, Math.min(ctxMenu.x, window.innerWidth - MENU_W - 4))
+        const my = Math.max(4, Math.min(ctxMenu.y, window.innerHeight - menuH - 4))
+        return (
+          <div ref={ctxRef} className="dirtree-ctx" data-testid="dir-ctx-menu" style={{ left: mx, top: my }}>
+            {ctxMenu.path == null ? (
+              <div className="dirtree-ctx-item" data-testid="dir-ctx-new"
+                onClick={() => { setNewDirTarget(dir); setNewDirOpen(true); setCtxMenu(null) }}>新建文件夹</div>
+            ) : (
+              <>
+                <div className="dirtree-ctx-item" data-testid="dir-ctx-new-sub"
+                  onClick={() => { setNewDirTarget(ctxMenu.path || ''); setNewDirOpen(true); setCtxMenu(null) }}>新建子文件夹</div>
+                <div className="dirtree-ctx-item" data-testid="dir-ctx-rename"
+                  onClick={() => {
+                    const p = ctxMenu.path || ''
+                    setRenaming(p); setRenameVal(p.split('/').slice(-1)[0] || ''); setCtxMenu(null)
+                  }}>重命名</div>
+                {(() => {
+                  const n = dirCount(ctxMenu.path || '')
+                  return (
+                    <div
+                      className={`dirtree-ctx-item${n ? ' disabled' : ''}`}
+                      data-testid="dir-ctx-delete"
+                      title={n ? `含 ${n} 个脚本，请先移走` : undefined}
+                      onClick={() => { if (!n) { const p = ctxMenu.path || ''; setCtxMenu(null); onDeleteDir(p) } }}
+                    >删除</div>
+                  )
+                })()}
+              </>
+            )}
+          </div>
+        )
+      })()}
 
       {/* v2.16 §6.7：标签管理浮层（560px；入口 = 筛选行「管理标签…」/ 标签列 +N） */}
       <TagManagerPalette open={tagPanelOpen} onClose={() => setTagPanelOpen(false)} />

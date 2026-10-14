@@ -8,7 +8,8 @@ from ..models.device import Device
 from ..models.tag import ScriptTag, Tag
 from ..models.run_history import RunHistory
 from ..config import get_script_root
-from ..schemas.script import ScriptOut, ScriptUpdate, ScriptListOut, ScanResult, TagsUpdate, MoveRequest
+from ..schemas.script import (ScriptOut, ScriptUpdate, ScriptListOut, ScanResult,
+                              TagsUpdate, MoveRequest, DirCreateRequest, DirRenameRequest)
 from ..schemas.brief import LastRunBrief
 from ..schemas.tag import UploadResult
 from ..services.scanner import scan_scripts, SUPPORTED_EXTENSIONS
@@ -223,16 +224,84 @@ async def list_scripts(
 
 @router.get("/dirs")
 async def list_script_dirs(db: AsyncSession = Depends(get_db)):
-    """返回脚本根目录下已有的子目录列表（相对路径）"""
+    """返回脚本根目录下的子目录列表（相对路径，含空目录——新建文件夹落盘后立即可见）"""
     root = get_script_root()
     dirs = set()
     if root.exists():
         for p in root.rglob("*"):
-            if p.is_file() and p.suffix.lower() in SUPPORTED_EXTENSIONS:
-                rel_dir = p.parent.relative_to(root)
-                if str(rel_dir) != ".":
-                    dirs.add(str(rel_dir))
+            if p.is_dir() and str(p.relative_to(root)) != ".":
+                dirs.add(str(p.relative_to(root)))
     return {"directories": sorted(dirs)}
+
+
+def _norm_dir_rel(raw: str) -> str:
+    """目录相对路径统一校验（POST/PUT/DELETE /dirs 共用）：
+    拒绝空串 / 绝对路径（/、盘符）/ `..`、`.` / 空段（双斜杠、尾斜杠），
+    并防目录穿越（resolve 后必须仍落在脚本根内，与 upload/move 同判据）。返回规范化相对路径。"""
+    raw = raw.strip().replace("\\", "/")
+    if (not raw or raw.startswith("/") or ":" in raw
+            or any(seg in ("", ".", "..") for seg in raw.split("/"))):
+        raise HTTPException(400, "非法目录路径")
+    root = get_script_root()
+    if not (root / raw).resolve().is_relative_to(root.resolve()):
+        raise HTTPException(400, "非法目录路径")
+    return raw
+
+
+@router.post("/dirs")
+async def create_script_dir(data: DirCreateRequest):
+    """在脚本根目录下新建子目录（mkdir -p；已存在幂等返回 200）"""
+    raw = _norm_dir_rel(data.path)
+    target = (get_script_root() / raw)
+    target.mkdir(parents=True, exist_ok=True)
+    return {"message": "已创建", "path": raw}
+
+
+@router.put("/dirs")
+async def rename_script_dir(data: DirRenameRequest, db: AsyncSession = Depends(get_db)):
+    """目录重命名：磁盘 mv（同盘 rename）+ DB relative_path/path 前缀同步，同一事务提交"""
+    old = _norm_dir_rel(data.old)
+    new = _norm_dir_rel(data.new)
+    root = get_script_root()
+    old_dir = root / old
+    new_dir = root / new
+    if not old_dir.is_dir():
+        raise HTTPException(404, "目录不存在")
+    if new_dir.exists():
+        raise HTTPException(400, "目标目录已存在")
+    if new_dir.resolve().is_relative_to(old_dir.resolve()):
+        raise HTTPException(400, "非法目录路径")   # 不能把目录挪进自己的子目录
+    new_dir.parent.mkdir(parents=True, exist_ok=True)
+    os.rename(old_dir, new_dir)
+    # DB 前缀同步：LIKE 粗筛（走索引）+ startswith 精筛（LIKE 的 %/_ 通配符不转义会误配）
+    rows = (await db.execute(
+        select(Script).where(Script.relative_path.like(f"{old}/%")))).scalars().all()
+    for s in rows:
+        if s.relative_path.startswith(old + "/"):
+            s.relative_path = f"{new}/{s.relative_path[len(old) + 1:]}"
+            s.path = str(root / s.relative_path)
+    await db.commit()
+    return {"message": "已重命名", "old": old, "new": new}
+
+
+@router.delete("/dirs")
+async def delete_script_dir(path: str = Query(...), db: AsyncSession = Depends(get_db)):
+    """删除目录：仅允许空目录（DB 无脚本 + 磁盘无任何条目），os.rmdir 拒绝递归删除"""
+    rel = _norm_dir_rel(path)
+    d = get_script_root() / rel
+    if not d.is_dir():
+        raise HTTPException(404, "目录不存在")
+    prefix = rel + "/"
+    rows = (await db.execute(
+        select(Script.relative_path).where(Script.relative_path.like(f"{prefix}%")))).all()
+    n = sum(1 for (rp,) in rows if rp.startswith(prefix))
+    if n:
+        raise HTTPException(400, f"该目录含 {n} 个脚本，请先移走")
+    # 磁盘兜底：DB 可能漏记（30s scanner 前），磁盘上还有东西就不许删
+    if any(d.iterdir()):
+        raise HTTPException(400, "目录非空（磁盘上还有文件或子目录），请先清空")
+    os.rmdir(d)
+    return {"message": "已删除", "path": rel}
 
 
 @router.get("/{script_id}/dep-candidates")
