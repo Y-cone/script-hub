@@ -1,6 +1,7 @@
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy import event, text
+import logging
 
 from .config import DATA_DIR
 
@@ -121,6 +122,19 @@ async def _rebuild_tables():
             await conn.execute(text(f"ALTER TABLE {new_table} RENAME TO {table}"))
 
 
+async def _normalize_rel_path_separators():
+    """存量归一（幂等）：Windows 老库的 relative_path 存的是反斜杠，全链路（树构建/前缀
+    LIKE 匹配）只认正斜杠 → 启动时一次性替换。无 `\` 行零写入，POSIX 库不受影响。"""
+    async with engine.begin() as conn:
+        res = await conn.execute(text(
+            "UPDATE scripts SET relative_path = REPLACE(relative_path, '\\', '/') "
+            "WHERE relative_path LIKE '%\\%'"
+        ))
+        if res.rowcount:
+            logging.getLogger(__name__).info(
+                "relative_path 分隔符归一：%s 行反斜杠 → 正斜杠", res.rowcount)
+
+
 async def init_db():
     # 先建表（幂等）再补列/重建——空库（全新数据目录）时 _apply_migrations 的
     # ALTER 会因表不存在而失败，create_all 必须在前
@@ -128,6 +142,7 @@ async def init_db():
         await conn.run_sync(Base.metadata.create_all)
     await _apply_migrations()
     await _rebuild_tables()
+    await _normalize_rel_path_separators()
 
 
 async def get_db() -> AsyncSession:

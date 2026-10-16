@@ -230,7 +230,7 @@ async def list_script_dirs(db: AsyncSession = Depends(get_db)):
     if root.exists():
         for p in root.rglob("*"):
             if p.is_dir() and str(p.relative_to(root)) != ".":
-                dirs.add(str(p.relative_to(root)))
+                dirs.add(p.relative_to(root).as_posix())
     return {"directories": sorted(dirs)}
 
 
@@ -313,7 +313,7 @@ async def list_dep_candidates(script_id: int, db: AsyncSession = Depends(get_db)
     if root.exists():
         for p in sorted(root.rglob("*")):
             if p.is_file():
-                files.append(str(p.relative_to(root)))
+                files.append(p.relative_to(root).as_posix())
     return {"files": files}
 
 
@@ -411,7 +411,7 @@ async def import_script(
                     if enc_warning:
                         logger.warning("导入 %s: %s", dest, enc_warning)
                     atomic_write_bytes(dest, data)
-                    imported.append(str(Path(n)))
+                    imported.append(n)   # n 是 zip 内 posix 名，str(Path(n)) 会在 Windows 转成反斜杠
     except zipfile.BadZipFile:
         raise HTTPException(400, "ZIP 文件损坏")
 
@@ -587,7 +587,7 @@ async def move_script(script_id: int, data: MoveRequest, db: AsyncSession = Depe
     shutil.move(str(src), str(dest))
 
     script.path = str(dest)
-    script.relative_path = str(dest.relative_to(root))
+    script.relative_path = dest.relative_to(root).as_posix()
     script.updated_at = datetime.utcnow()
     await db.commit()
     await db.refresh(script)

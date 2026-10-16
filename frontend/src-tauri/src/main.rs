@@ -77,9 +77,13 @@ fn kill_tree(pid: u32) {
     }
     #[cfg(windows)]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW：GUI 壳 spawn 控台程序 taskkill 不闪黑框；
+        // spawn 不等待——强杀进程无需壳在场等结果，同步 .status() 会拖慢退出 4-10s
         let _ = Command::new("taskkill")
             .args(["/T", "/F", "/PID", &pid.to_string()])
-            .status();
+            .creation_flags(0x0800_0000)
+            .spawn();
     }
 }
 
@@ -228,6 +232,12 @@ fn main() {
                         if let Some(pid) = app.state::<SidecarPid>().0.lock().unwrap().take() {
                             kill_tree(pid);
                         }
+                        // Windows：taskkill 已触发强杀，直接跳过 WebView2/GTK 慢速 teardown
+                        // （SQLite WAL 模式无脏数据风险）。已知代价：托盘图标可能残留至鼠标悬停
+                        // （Windows 资源管理器行为，可接受）
+                        #[cfg(windows)]
+                        std::process::exit(0);
+                        #[cfg(not(windows))]
                         app.exit(0);
                     }
                     _ => {}

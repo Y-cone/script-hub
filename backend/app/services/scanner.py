@@ -50,7 +50,7 @@ async def scan_scripts(db: AsyncSession) -> dict:
 
     # Add or update
     for abs_path, filepath in disk_files.items():
-        rel_path = str(filepath.relative_to(root))
+        rel_path = filepath.relative_to(root).as_posix()
         ext = filepath.suffix.lower()
         category = EXTENSION_MAP[ext]
         now = datetime.utcnow()

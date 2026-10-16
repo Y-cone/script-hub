@@ -224,7 +224,7 @@ export default function DesktopScriptLibrary() {
     const build = (prefix: string, depth: number): DirNode[] => {
       const segs = new Set<string>()
       for (const d of dirs) {
-        const seg = d.split('/').filter(Boolean)
+        const seg = d.replace(/\\/g, '/').split('/').filter(Boolean)
         if (seg.length > depth && seg.slice(0, depth).join('/') === prefix) segs.add(seg[depth])
       }
       return [...segs].sort().map((name) => {
@@ -520,7 +520,7 @@ export default function DesktopScriptLibrary() {
             onClick={() => {
               const e: Record<string, boolean> = {}
               for (const d of dirs) {
-                const seg = d.split('/').filter(Boolean)
+                const seg = d.replace(/\\/g, '/').split('/').filter(Boolean)
                 for (let i = 1; i < seg.length; i++) e[seg.slice(0, i).join('/')] = false
               }
               setExpanded(e)
